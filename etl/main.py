@@ -77,8 +77,14 @@ def _process_file(conn, rf_file: RFFile, mode: str = "copy") -> int:
         if mode == "copy":
             enable_triggers(conn, schema.table)
     except Exception as e:
+        conn.rollback()
+        logger.exception(f"Failed while processing {rf_file.name}")
         if mode == "copy":
-            enable_triggers(conn, schema.table)
+            try:
+                enable_triggers(conn, schema.table)
+            except Exception:
+                conn.rollback()
+                logger.exception(f"Failed to re-enable triggers on {schema.table}")
         set_file_state(conn, rf_file.name, "error", rf_file.last_modified, error_message=str(e))
         raise
     finally:
@@ -105,6 +111,7 @@ def cmd_full_load():
             try:
                 _process_file(conn, rf_file, mode="copy")
             except Exception as e:
+                conn.rollback()
                 logger.error(f"Failed to process {rf_file.name}: {e}")
                 # Continua para o próximo arquivo
                 continue

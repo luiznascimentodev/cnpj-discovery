@@ -76,8 +76,14 @@ def bulk_copy(
     buf.seek(0)
     text_buf = io.StringIO(buf.read().decode("utf-8"))
 
+    columns_sql = ", ".join(available_cols)
+    copy_sql = (
+        f"COPY {table} ({columns_sql}) FROM STDIN WITH "
+        "(FORMAT CSV, DELIMITER E'\\t', NULL '\\N', HEADER FALSE)"
+    )
+
     with conn.cursor() as cur:
-        cur.copy_from(text_buf, table, columns=available_cols, sep="\t", null="\\N")
+        cur.copy_expert(copy_sql, text_buf)
     conn.commit()
 
     n_rows = len(df)

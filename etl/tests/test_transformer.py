@@ -119,6 +119,17 @@ class TestTransformEmpresas:
         assert result["porte"].dtype == pl.Int16
         assert result["porte"][0] == 1
 
+    def test_decimal_integer_fields_cast_to_int16(self):
+        df = self._make_df([{
+            "cnpj_basico": "00000001", "razao_social": "X",
+            "natureza_juridica": "2062.0", "qualificacao_resp": "0.0",
+            "capital_social": "100,00", "porte": "5.0", "ente_federativo": "",
+        }])
+        result = transform_empresas(df)
+        assert result["natureza_juridica"][0] == 2062
+        assert result["qualificacao_resp"][0] == 0
+        assert result["porte"][0] == 5
+
     def test_strips_whitespace_from_razao_social(self):
         df = self._make_df([{
             "cnpj_basico": "00000001", "razao_social": "  EMPRESA C  ",
@@ -177,6 +188,12 @@ class TestTransformEstabelecimentos:
         result = transform_estabelecimentos(df)
         assert result["situacao_cadastral"].dtype == pl.Int16
         assert result["situacao_cadastral"][0] == 2
+
+    def test_decimal_integer_fields_cast(self):
+        df = self._make_df([self._make_row({"situacao_cadastral": "2.0", "cnae_principal": "6201500.0"})])
+        result = transform_estabelecimentos(df)
+        assert result["situacao_cadastral"][0] == 2
+        assert result["cnae_principal"][0] == 6201500
 
 
 # ─── transform_socios ────────────────────────────────────────────────────────
@@ -247,6 +264,14 @@ class TestTransformDominios:
         )
         result = transform_dominios(df)
         assert result["codigo"][0] is None
+
+    def test_decimal_codigo_cast_to_int32(self):
+        df = pl.DataFrame(
+            [{"codigo": "6201500.0", "descricao": "CNAE"}],
+            schema={"codigo": pl.Utf8, "descricao": pl.Utf8},
+        )
+        result = transform_dominios(df)
+        assert result["codigo"][0] == 6201500
 
 
 # ─── TRANSFORM_MAP ────────────────────────────────────────────────────────────

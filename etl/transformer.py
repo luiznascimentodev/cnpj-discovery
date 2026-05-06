@@ -49,6 +49,16 @@ def parse_date_rf(value: str) -> Optional[date]:
 
 # ─── Funções de transformação de DataFrame (Polars vetorizado) ───────────────
 
+def _parse_int_expr(column: str, dtype: pl.DataType) -> pl.Expr:
+    return (
+        pl.col(column)
+        .str.strip_chars()
+        .str.replace(",", ".", literal=True)
+        .cast(pl.Float64, strict=False)
+        .cast(dtype, strict=False)
+    )
+
+
 def transform_empresas(df: pl.DataFrame) -> pl.DataFrame:
     """
     Normaliza DataFrame de empresas:
@@ -61,14 +71,14 @@ def transform_empresas(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns([
         pl.col("cnpj_basico").str.strip_chars().str.zfill(8),
         pl.col("razao_social").str.strip_chars(),
-        pl.col("natureza_juridica").str.strip_chars().cast(pl.Int16, strict=False),
-        pl.col("qualificacao_resp").str.strip_chars().cast(pl.Int16, strict=False),
+        _parse_int_expr("natureza_juridica", pl.Int16),
+        _parse_int_expr("qualificacao_resp", pl.Int16),
         pl.col("capital_social")
             .str.strip_chars()
             .str.replace_all(r"\.", "", literal=False)
             .str.replace(",", ".", literal=True)
             .cast(pl.Float64, strict=False),
-        pl.col("porte").str.strip_chars().cast(pl.Int16, strict=False),
+        _parse_int_expr("porte", pl.Int16),
         pl.col("ente_federativo").str.strip_chars(),
     ])
 
@@ -98,10 +108,10 @@ def transform_estabelecimentos(df: pl.DataFrame) -> pl.DataFrame:
         pl.col("cnpj_basico").str.strip_chars().str.zfill(8),
         pl.col("cnpj_ordem").str.strip_chars(),
         pl.col("cnpj_dv").str.strip_chars(),
-        pl.col("cnae_principal").str.strip_chars().cast(pl.Int32, strict=False),
+        _parse_int_expr("cnae_principal", pl.Int32),
         pl.col("cep").str.strip_chars().str.replace_all(r"\D", "", literal=False),
         pl.col("email").str.strip_chars().str.to_lowercase(),
-        *[pl.col(c).str.strip_chars().cast(pl.Int16, strict=False) for c in int16_cols],
+        *[_parse_int_expr(c, pl.Int16) for c in int16_cols],
         *[pl.col(c).str.strip_chars() for c in text_cols],
     ])
 
@@ -129,7 +139,7 @@ def transform_socios(df: pl.DataFrame) -> pl.DataFrame:
 
     result = df.with_columns([
         pl.col("cnpj_basico").str.strip_chars().str.zfill(8),
-        *[pl.col(c).str.strip_chars().cast(pl.Int16, strict=False) for c in int16_cols],
+        *[_parse_int_expr(c, pl.Int16) for c in int16_cols],
         *[pl.col(c).str.strip_chars() for c in text_cols],
     ])
 
@@ -176,7 +186,7 @@ def transform_dominios(df: pl.DataFrame) -> pl.DataFrame:
     - descricao: strip
     """
     return df.with_columns([
-        pl.col("codigo").str.strip_chars().cast(pl.Int32, strict=False),
+        _parse_int_expr("codigo", pl.Int32),
         pl.col("descricao").str.strip_chars(),
     ])
 

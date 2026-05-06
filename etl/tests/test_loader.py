@@ -126,6 +126,34 @@ class TestBulkCopy:
             n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"])
         assert n == 1
 
+    def test_empty_string_stored_as_empty_not_quoted_pair(self, db_conn):
+        df = pl.DataFrame(
+            [{"id": "007", "name": "", "value": "1"}],
+            schema={"id": pl.Utf8, "name": pl.Utf8, "value": pl.Utf8}
+        )
+        with get_connection() as conn:
+            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"])
+        assert n == 1
+
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT name FROM _test_loader WHERE id = '007'")
+            row = cur.fetchone()
+            assert row[0] == ""  # deve ser string vazia, não '""'
+
+    def test_handles_trailing_backslash_before_column_separator(self, db_conn):
+        df = make_df([
+            {"id": "006", "name": "RONALD RIBEIRO CARDOSO\\", "value": "0.0"},
+        ])
+        with get_connection() as conn:
+            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"])
+        assert n == 1
+
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT name, value FROM _test_loader WHERE id = '006'")
+            row = cur.fetchone()
+            assert row[0] == "RONALD RIBEIRO CARDOSO\\"
+            assert row[1] == 0
+
 
 # ─── upsert ───────────────────────────────────────────────────────────────────
 
