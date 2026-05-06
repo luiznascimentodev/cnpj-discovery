@@ -25,8 +25,9 @@ from schemas import MAIN_FILE_SCHEMAS, FILE_PREFIX_MAP
 
 def _get_schema_for_file(filename: str):
     """Retorna o TableSchema adequado para um arquivo RF, ou None se não conhecido."""
+    normalized_filename = filename.lower()
     for prefix, schema in {**MAIN_FILE_SCHEMAS, **FILE_PREFIX_MAP}.items():
-        if filename.startswith(prefix):
+        if normalized_filename.startswith(prefix.lower()):
             return schema
     return None
 

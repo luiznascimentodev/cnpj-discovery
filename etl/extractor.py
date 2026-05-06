@@ -68,7 +68,8 @@ def _find_csv_entry(zf: zipfile.ZipFile, zip_path: Path) -> str:
     """
     Localiza o arquivo CSV dentro do ZIP.
 
-    Os ZIPs da RF contêm um arquivo sem extensão ou com extensão .csv.
+    Os ZIPs da RF contêm um arquivo sem extensão, com extensão .csv, ou com
+    nomes compactados que terminam em marcadores como CNAECSV.
     Retorna o nome do primeiro arquivo válido encontrado.
     """
     entries = zf.namelist()
@@ -78,7 +79,12 @@ def _find_csv_entry(zf: zipfile.ZipFile, zip_path: Path) -> str:
     if csv_entries:
         return csv_entries[0]
 
-    # Segundo: arquivos sem extensão (padrão antigo da RF)
+    # Segundo: nomes internos atuais da RF, como F.K03200$Z.D60411.CNAECSV
+    csv_marker_entries = [e for e in entries if "csv" in e.split("/")[-1].lower()]
+    if csv_marker_entries:
+        return csv_marker_entries[0]
+
+    # Terceiro: arquivos sem extensão (padrão antigo da RF)
     no_ext_entries = [e for e in entries if "." not in e.split("/")[-1]]
     if no_ext_entries:
         return no_ext_entries[0]

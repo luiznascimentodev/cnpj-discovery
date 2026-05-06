@@ -5,11 +5,13 @@ O certificado SSL da RF usa ICP-Brasil (não reconhecido por certifi),
 então usamos verify=False nas requisições.
 """
 import io
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from urllib.parse import unquote
 
 import httpx
 from loguru import logger
@@ -19,6 +21,8 @@ import logging
 from config import settings
 
 _DAV_NS = "DAV:"
+_CNPJ_ROOT_PATH = "Dados/Cadastros/CNPJ/"
+_SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}$")
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,7 @@ class RFFile:
     name: str
     last_modified: datetime
     size: int
+    url_path: str | None = None
 
 
 def list_rf_files() -> list[RFFile]:
@@ -34,14 +39,31 @@ def list_rf_files() -> list[RFFile]:
     Retorna apenas arquivos .zip (ignora diretórios).
     """
     with httpx.Client(verify=False, timeout=30) as client:
-        resp = client.request(
-            "PROPFIND",
-            settings.rf_webdav_base,
-            auth=(settings.rf_share_token, ""),
-            headers={"Depth": "1"},
-        )
+        resp = _propfind(client, settings.rf_webdav_base)
+        files = _parse_propfind_response(resp.text)
+
+        if files:
+            return files
+
+        resp = _propfind(client, _webdav_url(_CNPJ_ROOT_PATH))
+        snapshot_path = _latest_cnpj_snapshot_path(resp.text)
+        if snapshot_path is None:
+            return []
+
+        logger.info(f"Using latest CNPJ snapshot folder: {snapshot_path}")
+        resp = _propfind(client, _webdav_url(snapshot_path))
+        return _parse_propfind_response(resp.text)
+
+
+def _propfind(client: httpx.Client, url: str) -> httpx.Response:
+    resp = client.request(
+        "PROPFIND",
+        url,
+        auth=(settings.rf_share_token, ""),
+        headers={"Depth": "1"},
+    )
     resp.raise_for_status()
-    return _parse_propfind_response(resp.text)
+    return resp
 
 
 def _parse_propfind_response(xml_text: str) -> list[RFFile]:
@@ -66,8 +88,42 @@ def _parse_propfind_response(xml_text: str) -> list[RFFile]:
             name=name,
             last_modified=last_modified,
             size=int(size_str),
+            url_path=_webdav_path_from_href(href),
         ))
     return sorted(files, key=lambda f: f.name)
+
+
+def _latest_cnpj_snapshot_path(xml_text: str) -> str | None:
+    root = ET.fromstring(xml_text)
+    snapshots = []
+
+    for response in root.findall(f"{{{_DAV_NS}}}response"):
+        href = response.findtext(f"{{{_DAV_NS}}}href", default="")
+        path = _webdav_path_from_href(href)
+
+        if not path.startswith(_CNPJ_ROOT_PATH):
+            continue
+
+        snapshot = path[len(_CNPJ_ROOT_PATH):].strip("/")
+        if _SNAPSHOT_RE.match(snapshot):
+            snapshots.append(snapshot)
+
+    if not snapshots:
+        return None
+
+    return f"{_CNPJ_ROOT_PATH}{max(snapshots)}/"
+
+
+def _webdav_path_from_href(href: str) -> str:
+    path = unquote(href.lstrip("/"))
+    marker = "public.php/webdav/"
+    if marker in path:
+        return path.split(marker, 1)[1]
+    return path
+
+
+def _webdav_url(path: str) -> str:
+    return settings.rf_webdav_base.rstrip("/") + "/" + path.lstrip("/")
 
 
 @retry(
@@ -87,7 +143,7 @@ def download_file(rf_file: RFFile, dest_dir: str) -> Path:
     dest_dir_path = Path(dest_dir)
     dest_dir_path.mkdir(parents=True, exist_ok=True)
     dest = dest_dir_path / rf_file.name
-    url = settings.rf_webdav_base.rstrip("/") + "/" + rf_file.name
+    url = _webdav_url(rf_file.url_path or rf_file.name)
 
     logger.info(
         f"Downloading {rf_file.name} "

@@ -39,6 +39,11 @@ class TestFindCsvEntry:
         with zipfile.ZipFile(zip_path) as zf:
             assert _find_csv_entry(zf, zip_path) == "K3241721Y0"
 
+    def test_finds_receita_csv_marker_file(self, tmp_path):
+        zip_path = make_zip_with_csv(tmp_path, "F.K03200$Z.D60411.CNAECSV", b"test")
+        with zipfile.ZipFile(zip_path) as zf:
+            assert _find_csv_entry(zf, zip_path) == "F.K03200$Z.D60411.CNAECSV"
+
     def test_prefers_csv_over_extensionless(self, tmp_path):
         zip_path = tmp_path / "test.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
