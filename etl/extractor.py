@@ -89,8 +89,13 @@ def _find_csv_entry(zf: zipfile.ZipFile, zip_path: Path) -> str:
     if no_ext_entries:
         return no_ext_entries[0]
 
+    # Quarto: qualquer arquivo não-diretório — cobre nomes como ESTABELE
+    file_entries = [e for e in entries if not e.endswith("/")]
+    if file_entries:
+        return file_entries[0]
+
     raise ValueError(
-        f"No CSV or extensionless file found in {zip_path.name}. "
+        f"No data file found in {zip_path.name}. "
         f"Available entries: {entries}"
     )
 

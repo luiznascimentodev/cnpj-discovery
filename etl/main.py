@@ -108,6 +108,10 @@ def cmd_full_load():
         drop_managed_indexes(conn)
 
         for rf_file in rf_files:
+            state = get_file_state(conn, rf_file.name)
+            if state and state.status == "done":
+                logger.info(f"Skipping {rf_file.name} — already done ({state.rows_processed:,} rows)")
+                continue
             try:
                 _process_file(conn, rf_file, mode="copy")
             except Exception as e:

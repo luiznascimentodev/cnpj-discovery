@@ -126,46 +126,68 @@ def _webdav_url(path: str) -> str:
     return settings.rf_webdav_base.rstrip("/") + "/" + path.lstrip("/")
 
 
+def download_file(rf_file: RFFile, dest_dir: str) -> Path:
+    """
+    Faz download de um arquivo ZIP com suporte a resume.
+
+    Se um arquivo parcial já existir em dest_dir, retoma o download
+    usando Range request (HTTP 206). Se o arquivo já estiver completo,
+    retorna imediatamente sem nova requisição.
+    """
+    dest_dir_path = Path(dest_dir)
+    dest_dir_path.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir_path / rf_file.name
+
+    if dest.exists() and rf_file.size > 0 and dest.stat().st_size >= rf_file.size:
+        logger.info(f"Skipping {rf_file.name} — already downloaded ({rf_file.size / 1_000_000:.1f} MB)")
+        return dest
+
+    return _download_with_resume(rf_file, dest)
+
+
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=2, max=60),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
-def download_file(rf_file: RFFile, dest_dir: str) -> Path:
-    """
-    Faz download de um arquivo ZIP via streaming httpx com retry exponencial.
-
-    - Usa chunks de 1 MB para não estourar a RAM
-    - Apaga arquivo parcial em caso de erro
-    - Retry automático até 5 tentativas
-    """
-    dest_dir_path = Path(dest_dir)
-    dest_dir_path.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir_path / rf_file.name
+def _download_with_resume(rf_file: RFFile, dest: Path) -> Path:
+    """Executa o download com suporte a resume via HTTP Range e retry exponencial."""
     url = _webdav_url(rf_file.url_path or rf_file.name)
+    existing_size = dest.stat().st_size if dest.exists() else 0
 
-    logger.info(
-        f"Downloading {rf_file.name} "
-        f"({rf_file.size / 1_000_000:.1f} MB)..."
-    )
+    headers = {}
+    if existing_size > 0:
+        headers["Range"] = f"bytes={existing_size}-"
+        logger.info(
+            f"Resuming {rf_file.name} from {existing_size / 1_000_000:.1f} MB "
+            f"/ {rf_file.size / 1_000_000:.1f} MB..."
+        )
+    else:
+        logger.info(f"Downloading {rf_file.name} ({rf_file.size / 1_000_000:.1f} MB)...")
 
-    try:
-        with httpx.stream(
-            "GET", url,
-            auth=(settings.rf_share_token, ""),
-            verify=False,
-            timeout=None,
-            follow_redirects=True,
-        ) as response:
-            response.raise_for_status()
-            with open(dest, "wb") as f:
-                for chunk in response.iter_bytes(chunk_size=1_024 * 1_024):
-                    f.write(chunk)
-    except Exception:
-        if dest.exists():
+    with httpx.stream(
+        "GET", url,
+        auth=(settings.rf_share_token, ""),
+        headers=headers,
+        verify=False,
+        timeout=None,
+        follow_redirects=True,
+    ) as response:
+        if response.status_code == 416:
+            # Range Not Satisfiable: arquivo já está completo no disco
+            logger.info(f"{rf_file.name} already complete on disk")
+            return dest
+        if response.status_code == 200 and existing_size > 0:
+            # Servidor não suporta Range — reinicia do zero
+            logger.warning(f"{rf_file.name}: server does not support Range, restarting download")
             dest.unlink()
-        raise
+            existing_size = 0
+        response.raise_for_status()
+        mode = "ab" if existing_size > 0 else "wb"
+        with open(dest, mode) as f:
+            for chunk in response.iter_bytes(chunk_size=1_024 * 1_024):
+                f.write(chunk)
 
-    logger.success(f"Downloaded {rf_file.name} → {dest} ({dest.stat().st_size} bytes)")
+    logger.success(f"Downloaded {rf_file.name} → {dest} ({dest.stat().st_size:,} bytes)")
     return dest

@@ -53,13 +53,17 @@ class TestFindCsvEntry:
             result = _find_csv_entry(zf, zip_path)
             assert result == "data.csv"
 
-    def test_raises_when_no_csv_or_extensionless(self, tmp_path):
-        zip_path = tmp_path / "test.zip"
-        with zipfile.ZipFile(zip_path, "w") as zf:
-            zf.writestr("readme.txt", b"nothing here")
-            zf.writestr("data.xml", b"<xml/>")
+    def test_finds_estabelecimentos_style_entry(self, tmp_path):
+        zip_path = make_zip_with_csv(tmp_path, "K3241.K03200Y0.D60411.ESTABELE", b"test")
         with zipfile.ZipFile(zip_path) as zf:
-            with pytest.raises(ValueError, match="No CSV or extensionless file"):
+            assert _find_csv_entry(zf, zip_path) == "K3241.K03200Y0.D60411.ESTABELE"
+
+    def test_raises_when_zip_is_empty(self, tmp_path):
+        zip_path = tmp_path / "test.zip"
+        with zipfile.ZipFile(zip_path, "w"):
+            pass
+        with zipfile.ZipFile(zip_path) as zf:
+            with pytest.raises(ValueError, match="No data file found"):
                 _find_csv_entry(zf, zip_path)
 
 
@@ -148,12 +152,12 @@ class TestStreamZipAsBatches:
         with pytest.raises(zipfile.BadZipFile):
             list(stream_zip_as_batches(bad_zip, COLUMNS))
 
-    def test_raises_when_no_csv_in_zip(self, tmp_path):
+    def test_raises_when_zip_has_no_files(self, tmp_path):
         zip_path = tmp_path / "empty.zip"
-        with zipfile.ZipFile(zip_path, "w") as zf:
-            zf.writestr("readme.txt", b"nothing")
+        with zipfile.ZipFile(zip_path, "w"):
+            pass
 
-        with pytest.raises(ValueError, match="No CSV or extensionless file"):
+        with pytest.raises(ValueError, match="No data file found"):
             list(stream_zip_as_batches(zip_path, COLUMNS))
 
     def test_empty_csv_yields_nothing(self, tmp_path):
