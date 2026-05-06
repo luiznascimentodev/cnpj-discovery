@@ -14,6 +14,8 @@ router = APIRouter()
 async def get_status():
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # As três queries não são snapshot-consistent entre si (sem transaction),
+        # o que é aceitável para um endpoint de monitoramento.
         total_empresas = await conn.fetchval("SELECT COUNT(*) FROM empresas")
         total_estabelecimentos = await conn.fetchval("SELECT COUNT(*) FROM estabelecimentos")
         etl_states = await conn.fetch(

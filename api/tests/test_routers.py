@@ -274,6 +274,25 @@ class TestExportRouter:
         sql = call_args[0]
         assert "LIMIT 100000" in sql
 
+    @pytest.mark.asyncio
+    async def test_export_logs_and_reraises_db_error(self, client: AsyncClient, mock_pool):
+        """Erro durante o stream é logado e re-lançado (HTTP 200 já enviado, truncamento silencioso)."""
+        mock_conn = AsyncMock()
+
+        async def _failing_cursor(*args, **kwargs):
+            raise RuntimeError("DB explodiu durante o stream")
+            yield  # torna a função async generator sem chegar aqui
+
+        mock_conn.cursor = MagicMock(return_value=_failing_cursor())
+        mock_txn = MagicMock()
+        mock_txn.__aenter__ = AsyncMock(return_value=None)
+        mock_txn.__aexit__ = AsyncMock(return_value=False)
+        mock_conn.transaction = MagicMock(return_value=mock_txn)
+        setup_pool(mock_pool, mock_conn)
+
+        with pytest.raises(RuntimeError, match="DB explodiu"):
+            await client.get("/v1/export/csv")
+
 
 # ─── Status router ─────────────────────────────────────────────────────────────
 

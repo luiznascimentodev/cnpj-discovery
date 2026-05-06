@@ -75,6 +75,8 @@ def build_prospecting_query(f: ProspectingFilters) -> tuple[str, list]:
         p += 1
 
     if f.busca_razao:
+        # ${p} referenciado duas vezes no mesmo fragmento SQL — asyncpg reutiliza o mesmo
+        # parâmetro posicional, portanto apenas um valor é adicionado a params.
         conditions.append(
             f"(to_tsvector('portuguese', e.razao_social) @@ plainto_tsquery('portuguese', ${p})"
             f" OR to_tsvector('portuguese', COALESCE(est.nome_fantasia, '')) @@ plainto_tsquery('portuguese', ${p}))"
