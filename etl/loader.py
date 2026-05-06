@@ -32,18 +32,20 @@ def disable_triggers(conn: psycopg2.extensions.connection, table: str) -> None:
     Desativa triggers na tabela durante carga inicial.
     Triggers validam FK e outros constraints — desativar acelera o COPY massivamente.
     Requer superuser ou ownership da tabela.
+    Não faz commit — deve ser chamado dentro da mesma transação da carga.
     """
     with conn.cursor() as cur:
         cur.execute(f"ALTER TABLE {table} DISABLE TRIGGER ALL")
-    conn.commit()
     logger.debug(f"Triggers disabled on {table}")
 
 
 def enable_triggers(conn: psycopg2.extensions.connection, table: str) -> None:
-    """Reativa triggers após a carga."""
+    """
+    Reativa triggers após a carga.
+    Não faz commit — o commit deve ser feito pelo chamador após todos os batches.
+    """
     with conn.cursor() as cur:
         cur.execute(f"ALTER TABLE {table} ENABLE TRIGGER ALL")
-    conn.commit()
     logger.debug(f"Triggers enabled on {table}")
 
 
@@ -52,17 +54,17 @@ def bulk_copy(
     df: pl.DataFrame,
     table: str,
     columns: list[str],
+    commit: bool = False,
 ) -> int:
     """
-    Insere um DataFrame no PostgreSQL via COPY FROM STDIN.
+    Insere um DataFrame no PostgreSQL via COPY FROM STDIN (FORMAT CSV).
 
-    Usa TSV (tab-separated) com \\N para NULL.
-    Muito mais rápido que INSERT para cargas massivas.
+    Por padrão não commita — o chamador é responsável pelo commit após todos
+    os batches, tornando o carregamento de um arquivo inteiro atômico.
 
     Returns:
         Número de linhas inseridas
     """
-    # Seleciona apenas colunas presentes no DF e no schema
     available_cols = [c for c in columns if c in df.columns]
     df_subset = df.select(available_cols)
 
@@ -84,7 +86,9 @@ def bulk_copy(
 
     with conn.cursor() as cur:
         cur.copy_expert(copy_sql, text_buf)
-    conn.commit()
+
+    if commit:
+        conn.commit()
 
     n_rows = len(df)
     logger.debug(f"COPY {n_rows} rows → {table}")

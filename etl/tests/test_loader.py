@@ -87,7 +87,7 @@ class TestBulkCopy:
             {"id": "002", "name": "Empresa B", "value": "2000"},
         ])
         with get_connection() as conn:
-            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"])
+            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"], commit=True)
         assert n == 2
 
         with db_conn.cursor() as cur:
@@ -97,7 +97,7 @@ class TestBulkCopy:
     def test_returns_row_count(self, db_conn):
         df = make_df([{"id": "003", "name": "C", "value": "300"}])
         with get_connection() as conn:
-            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"])
+            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"], commit=True)
         assert n == 1
 
     def test_handles_null_values(self, db_conn):
@@ -106,7 +106,7 @@ class TestBulkCopy:
             schema={"id": pl.Utf8, "name": pl.Utf8, "value": pl.Utf8}
         )
         with get_connection() as conn:
-            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"])
+            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"], commit=True)
         assert n == 1
 
         with db_conn.cursor() as cur:
@@ -123,7 +123,7 @@ class TestBulkCopy:
         )
         with get_connection() as conn:
             # Passa apenas colunas válidas
-            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"])
+            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"], commit=True)
         assert n == 1
 
     def test_empty_string_stored_as_empty_not_quoted_pair(self, db_conn):
@@ -132,7 +132,7 @@ class TestBulkCopy:
             schema={"id": pl.Utf8, "name": pl.Utf8, "value": pl.Utf8}
         )
         with get_connection() as conn:
-            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"])
+            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"], commit=True)
         assert n == 1
 
         with db_conn.cursor() as cur:
@@ -145,7 +145,7 @@ class TestBulkCopy:
             {"id": "006", "name": "RONALD RIBEIRO CARDOSO\\", "value": "0.0"},
         ])
         with get_connection() as conn:
-            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"])
+            n = bulk_copy(conn, df, "_test_loader", ["id", "name", "value"], commit=True)
         assert n == 1
 
         with db_conn.cursor() as cur:

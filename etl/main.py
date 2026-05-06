@@ -76,6 +76,7 @@ def _process_file(conn, rf_file: RFFile, mode: str = "copy") -> int:
 
         if mode == "copy":
             enable_triggers(conn, schema.table)
+            conn.commit()  # commit atômico: todos os batches + DDL num único commit
     except Exception as e:
         conn.rollback()
         logger.exception(f"Failed while processing {rf_file.name}")

@@ -106,9 +106,9 @@ def _parse_batch(lines: list[bytes], column_names: list[str]) -> pl.DataFrame:
 
     Todas as colunas ficam como pl.Utf8 — a tipagem acontece no transformer.
     """
-    # Adiciona header sintético para o polars saber os nomes das colunas
     header = (";".join(column_names) + "\n").encode("latin-1")
     raw = header + b"".join(lines)
+    raw = raw.replace(b"\x00", b"")  # null bytes são inválidos em UTF-8/PostgreSQL
 
     return pl.read_csv(
         io.BytesIO(raw),
