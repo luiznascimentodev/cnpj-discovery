@@ -82,6 +82,15 @@ class TestProspectingFilters:
         f = ProspectingFilters(excluir_mei=True)
         assert f.excluir_mei is True
 
+    def test_porte_mei_with_excluir_mei_raises(self):
+        with pytest.raises(ValidationError, match="mutuamente exclusivos"):
+            ProspectingFilters(porte=1, excluir_mei=True)
+
+    def test_porte_non_mei_with_excluir_mei_ok(self):
+        f = ProspectingFilters(porte=2, excluir_mei=True)
+        assert f.porte == 2
+        assert f.excluir_mei is True
+
     def test_situacao_cadastral_none(self):
         f = ProspectingFilters(situacao_cadastral=None)
         assert f.situacao_cadastral is None

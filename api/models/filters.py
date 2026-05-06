@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ProspectingFilters(BaseModel):
@@ -16,3 +16,9 @@ class ProspectingFilters(BaseModel):
     cursor_cnpj_basico: Optional[str] = Field(None, description="Cursor keyset: cnpj_basico da última linha da página anterior")
     cursor_cnpj_ordem: Optional[str] = Field(None, description="Cursor keyset: cnpj_ordem da última linha da página anterior")
     limit: int = Field(50, ge=1, le=500, description="Número máximo de resultados (1–500)")
+
+    @model_validator(mode="after")
+    def porte_mei_not_conflicting(self) -> "ProspectingFilters":
+        if self.porte == 1 and self.excluir_mei:
+            raise ValueError("Conflito: porte=1 (MEI) e excluir_mei=True são mutuamente exclusivos")
+        return self
