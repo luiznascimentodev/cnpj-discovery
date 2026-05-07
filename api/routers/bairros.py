@@ -28,11 +28,14 @@ WITH matches AS (
         bairro_canonical,
         municipio,
         municipio_descricao,
-        length(bairro_canonical) AS len
+        length(bairro_canonical) AS len,
+        cnt
     FROM bairros_lookup
     WHERE uf = $1 AND bairro_canonical ILIKE $2
 ),
--- Per city: keep only the shortest canonical that contains the search term.
+-- Per city: pick the canonical with the best score = len - LN(cnt+1).
+-- This lets a high-frequency correct spelling beat a shorter typo
+-- (e.g. "SITIO CERCADO"×50000 beats "SITIO CERCAO"×5 despite being 1 char longer).
 shortest_per_city AS (
     SELECT DISTINCT ON (municipio)
         bairro_canonical,
@@ -40,7 +43,7 @@ shortest_per_city AS (
         municipio_descricao,
         len
     FROM matches
-    ORDER BY municipio, len, bairro_canonical
+    ORDER BY municipio, (len - LN(cnt + 1)::numeric), bairro_canonical
 ),
 -- Distinct shortest forms seen globally (the "leaders").
 global_leaders AS (
