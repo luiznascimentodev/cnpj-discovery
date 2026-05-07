@@ -18,10 +18,19 @@ from config import settings
 
 
 @contextmanager
-def get_connection() -> Generator[psycopg2.extensions.connection, None, None]:
-    """Context manager para conexão PostgreSQL com auto-commit controlado."""
+def get_connection(fast_write: bool = False) -> Generator[psycopg2.extensions.connection, None, None]:
+    """
+    Context manager para conexão PostgreSQL com auto-commit controlado.
+
+    fast_write=True: desativa synchronous_commit nesta sessão. Reduz latência
+    por chamada de COPY em cargas massivas. O risco é perder até ~1 s de dados
+    numa queda; para um ETL re-executável isso é aceitável.
+    """
     conn = psycopg2.connect(settings.dsn)
     try:
+        if fast_write:
+            with conn.cursor() as cur:
+                cur.execute("SET synchronous_commit = off")
         yield conn
     finally:
         conn.close()
@@ -76,7 +85,6 @@ def bulk_copy(
         include_header=False,
     )
     buf.seek(0)
-    text_buf = io.StringIO(buf.read().decode("utf-8"))
 
     columns_sql = ", ".join(available_cols)
     copy_sql = (
@@ -85,7 +93,7 @@ def bulk_copy(
     )
 
     with conn.cursor() as cur:
-        cur.copy_expert(copy_sql, text_buf)
+        cur.copy_expert(copy_sql, buf)
 
     if commit:
         conn.commit()

@@ -2,15 +2,11 @@ import { Download } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { buildExportCsvUrl, searchEmpresas, type EmpresaOut, type Filters } from '../api/client'
+import { CompanyDetailModal } from '../components/CompanyDetailModal'
 import { FilterPanel } from '../components/FilterPanel'
 import { ResultsTable } from '../components/ResultsTable'
 
 const DEFAULT_LIMIT = 50
-
-const withDefaultLimit = (filters: Filters): Filters => ({
-  limit: DEFAULT_LIMIT,
-  ...filters,
-})
 
 const getCursorFromCnpj = (cnpj: string): Pick<Filters, 'cursor_cnpj_basico' | 'cursor_cnpj_ordem'> => ({
   cursor_cnpj_basico: cnpj.slice(0, 8),
@@ -20,10 +16,11 @@ const getCursorFromCnpj = (cnpj: string): Pick<Filters, 'cursor_cnpj_basico' | '
 export function Prospecting() {
   const [currentFilters, setCurrentFilters] = useState<Filters>({ situacao_cadastral: 2 })
   const [allResults, setAllResults] = useState<EmpresaOut[]>([])
+  const [selectedCnpj, setSelectedCnpj] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
   const [lastPageSize, setLastPageSize] = useState(0)
   const requestRef = useRef<{ filters: Filters; append: boolean }>({
-    filters: withDefaultLimit({ situacao_cadastral: 2 }),
+    filters: { situacao_cadastral: 2, limit: DEFAULT_LIMIT },
     append: false,
   })
 
@@ -42,7 +39,7 @@ export function Prospecting() {
   })
 
   const runSearch = (filters: Filters, append: boolean) => {
-    const nextFilters = withDefaultLimit(filters)
+    const nextFilters = { ...filters, limit: filters.limit ?? DEFAULT_LIMIT }
     setCurrentFilters(nextFilters)
     requestRef.current = { filters: nextFilters, append }
     void refetch()
@@ -100,8 +97,15 @@ export function Prospecting() {
           </a>
         </div>
 
-        <ResultsTable data={allResults} onLoadMore={handleLoadMore} hasMore={hasMore} searched={searched} />
+        <ResultsTable
+          data={allResults}
+          onLoadMore={handleLoadMore}
+          hasMore={hasMore}
+          searched={searched}
+          onSelectEmpresa={setSelectedCnpj}
+        />
       </main>
+      <CompanyDetailModal cnpj={selectedCnpj} onClose={() => setSelectedCnpj(null)} />
     </div>
   )
 }

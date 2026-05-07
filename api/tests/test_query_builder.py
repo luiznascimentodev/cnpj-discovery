@@ -1,9 +1,10 @@
-"""Tests for models/filters.py, models/empresa.py, and services/query_builder.py."""
+"""Tests for models/filters.py, models/empresa.py, models/detail.py, and services/query_builder.py."""
 from datetime import date
 
 import pytest
 from pydantic import ValidationError
 
+from models.detail import CnaeItem, EmpresaDetail, SimplesOut, SocioOut
 from models.empresa import EmpresaOut
 from models.filters import ProspectingFilters
 from services.query_builder import build_prospecting_query
@@ -22,7 +23,7 @@ class TestProspectingFilters:
         assert f.excluir_mei is False
         assert f.uf is None
         assert f.municipio is None
-        assert f.cnae_principal is None
+        assert f.cnaes is None
         assert f.porte is None
         assert f.capital_social_min is None
         assert f.capital_social_max is None
@@ -44,7 +45,7 @@ class TestProspectingFilters:
 
     def test_limit_above_max_raises(self):
         with pytest.raises(ValidationError):
-            ProspectingFilters(limit=501)
+            ProspectingFilters(limit=5001)
 
     def test_busca_razao_min_length(self):
         f = ProspectingFilters(busca_razao="ab")
@@ -84,11 +85,11 @@ class TestProspectingFilters:
 
     def test_porte_mei_with_excluir_mei_raises(self):
         with pytest.raises(ValidationError, match="mutuamente exclusivos"):
-            ProspectingFilters(porte=1, excluir_mei=True)
+            ProspectingFilters(porte=[1], excluir_mei=True)
 
     def test_porte_non_mei_with_excluir_mei_ok(self):
-        f = ProspectingFilters(porte=2, excluir_mei=True)
-        assert f.porte == 2
+        f = ProspectingFilters(porte=[2], excluir_mei=True)
+        assert f.porte == [2]
         assert f.excluir_mei is True
 
     def test_situacao_cadastral_none(self):
@@ -243,20 +244,38 @@ class TestBuildProspectingQueryMunicipio:
         assert params[0] == 3550308
 
 
-class TestBuildProspectingQueryCnaePrincipal:
-    def test_adds_cnae_condition(self):
-        f = ProspectingFilters(situacao_cadastral=None, cnae_principal=6201500)
+class TestBuildProspectingQueryCnaes:
+    def test_single_cnae_uses_any(self):
+        f = ProspectingFilters(situacao_cadastral=None, cnaes=[6201500])
         sql, params = build_prospecting_query(f)
-        assert "est.cnae_principal = $1" in sql
-        assert params[0] == 6201500
+        assert "est.cnae_principal = ANY($1::int[])" in sql
+        assert params[0] == [6201500]
+
+    def test_multiple_cnaes(self):
+        f = ProspectingFilters(situacao_cadastral=None, cnaes=[6201500, 6209100])
+        sql, params = build_prospecting_query(f)
+        assert "est.cnae_principal = ANY($1::int[])" in sql
+        assert params[0] == [6201500, 6209100]
+
+    def test_cnaes_none_no_condition(self):
+        f = ProspectingFilters(situacao_cadastral=None, cnaes=None)
+        sql, params = build_prospecting_query(f)
+        assert "est.cnae_principal = ANY" not in sql
+        assert params == []
 
 
 class TestBuildProspectingQueryPorte:
-    def test_adds_porte_condition(self):
-        f = ProspectingFilters(situacao_cadastral=None, porte=3)
+    def test_adds_porte_any_condition(self):
+        f = ProspectingFilters(situacao_cadastral=None, porte=[3])
         sql, params = build_prospecting_query(f)
-        assert "e.porte = $1" in sql
-        assert params[0] == 3
+        assert "e.porte = ANY($1::int[])" in sql
+        assert params[0] == [3]
+
+    def test_multiple_portes(self):
+        f = ProspectingFilters(situacao_cadastral=None, porte=[2, 3])
+        sql, params = build_prospecting_query(f)
+        assert "e.porte = ANY($1::int[])" in sql
+        assert params[0] == [2, 3]
 
 
 class TestBuildProspectingQueryExcluirMei:
@@ -376,8 +395,8 @@ class TestBuildProspectingQueryMultipleFilters:
             situacao_cadastral=2,
             uf="MG",
             municipio=3106200,
-            cnae_principal=4711302,
-            porte=3,
+            cnaes=[4711302],
+            porte=[3],
             excluir_mei=True,
             capital_social_min=5000.0,
             capital_social_max=1000000.0,
@@ -387,16 +406,16 @@ class TestBuildProspectingQueryMultipleFilters:
             limit=100,
         )
         sql, params = build_prospecting_query(f)
-        # situacao=1, uf=2, municipio=3, cnae=4, porte=5,
+        # situacao=1, uf=2, municipio=3, cnaes=4, porte=5,
         # excluir_mei adds no param, capital_min=6, capital_max=7, busca=8, cursor=9,10
         assert len(params) == 10
-        assert params[0] == 2          # situacao_cadastral
-        assert params[1] == "MG"       # uf (uppercased)
-        assert params[2] == 3106200    # municipio
-        assert params[3] == 4711302    # cnae_principal
-        assert params[4] == 3          # porte
-        assert params[5] == 5000.0     # capital_social_min
-        assert params[6] == 1000000.0  # capital_social_max
+        assert params[0] == 2            # situacao_cadastral
+        assert params[1] == "MG"         # uf (uppercased)
+        assert params[2] == 3106200      # municipio
+        assert params[3] == [4711302]    # cnaes
+        assert params[4] == [3]          # porte
+        assert params[5] == 5000.0       # capital_social_min
+        assert params[6] == 1000000.0    # capital_social_max
         assert params[7] == "mercearia"  # busca_razao
         assert params[8] == "11111111"   # cursor_basico
         assert params[9] == "0001"       # cursor_ordem
@@ -422,3 +441,168 @@ class TestBuildProspectingQueryMultipleFilters:
         f = ProspectingFilters(situacao_cadastral=2, uf="SP", municipio=3550308)
         sql, _ = build_prospecting_query(f)
         assert " AND " in sql
+
+
+# ---------------------------------------------------------------------------
+# Detail models
+# ---------------------------------------------------------------------------
+
+
+class TestDetailModels:
+    def _empresa_required(self):
+        return dict(
+            cnpj_basico="12345678", cnpj_ordem="0001", cnpj_dv="90",
+            cnpj_completo="12345678000190", razao_social="TESTE LTDA",
+        )
+
+    def test_empresa_detail_required_fields(self):
+        e = EmpresaDetail(**self._empresa_required())
+        assert e.cnpj_completo == "12345678000190"
+        assert e.cnae_secundarios == []
+        assert e.socios == []
+        assert e.simples is None
+
+    def test_empresa_detail_with_nested(self):
+        e = EmpresaDetail(
+            **self._empresa_required(),
+            cnae_secundarios=[CnaeItem(codigo=6201500, descricao="Dev")],
+            socios=[SocioOut(nome_socio="JOAO", qualificacao=49)],
+            simples=SimplesOut(opcao_simples="S"),
+        )
+        assert e.cnae_secundarios[0].codigo == 6201500
+        assert e.socios[0].nome_socio == "JOAO"
+        assert e.simples.opcao_simples == "S"
+
+    def test_cnae_item_descricao_optional(self):
+        c = CnaeItem(codigo=6201500)
+        assert c.descricao is None
+
+    def test_socio_all_optional(self):
+        s = SocioOut()
+        assert s.nome_socio is None
+        assert s.data_entrada is None
+
+    def test_simples_all_optional(self):
+        s = SimplesOut()
+        assert s.opcao_simples is None
+        assert s.opcao_mei is None
+
+
+# ---------------------------------------------------------------------------
+# New filter validators
+# ---------------------------------------------------------------------------
+
+
+class TestProspectingFiltersCnpj:
+    def test_cnpj_strips_punctuation(self):
+        f = ProspectingFilters(cnpj="12.345.678/0001-90")
+        assert f.cnpj == "12345678000190"
+
+    def test_cnpj_without_punctuation_accepted(self):
+        f = ProspectingFilters(cnpj="12345678000190")
+        assert f.cnpj == "12345678000190"
+
+    def test_cnpj_wrong_length_raises(self):
+        with pytest.raises(ValidationError, match="14 dígitos"):
+            ProspectingFilters(cnpj="123456")
+
+    def test_cnpj_none_accepted(self):
+        f = ProspectingFilters()
+        assert f.cnpj is None
+
+
+class TestProspectingFiltersDateRange:
+    def test_valid_date_range(self):
+        f = ProspectingFilters(
+            data_inicio_min=date(2020, 1, 1),
+            data_inicio_max=date(2023, 12, 31),
+        )
+        assert f.data_inicio_min == date(2020, 1, 1)
+
+    def test_inverted_date_range_raises(self):
+        with pytest.raises(ValidationError, match="data_inicio_min"):
+            ProspectingFilters(
+                data_inicio_min=date(2024, 1, 1),
+                data_inicio_max=date(2020, 1, 1),
+            )
+
+    def test_only_min_accepted(self):
+        f = ProspectingFilters(data_inicio_min=date(2020, 1, 1))
+        assert f.data_inicio_max is None
+
+
+# ---------------------------------------------------------------------------
+# New query builder filter paths
+# ---------------------------------------------------------------------------
+
+
+class TestBuildProspectingQueryCnpjMode:
+    def test_cnpj_mode_splits_into_pk(self):
+        f = ProspectingFilters(cnpj="12345678000190", situacao_cadastral=2, uf="SP")
+        sql, params = build_prospecting_query(f)
+        assert params == ["12345678", "0001", "90"]
+        assert "LIMIT 1" in sql
+
+    def test_cnpj_mode_ignores_other_filters(self):
+        f = ProspectingFilters(cnpj="12345678000190", situacao_cadastral=2, uf="SP")
+        sql, params = build_prospecting_query(f)
+        assert "est.uf =" not in sql
+        assert "situacao_cadastral =" not in sql
+
+
+class TestBuildProspectingQueryNewFilters:
+    def test_bairro_uses_ilike(self):
+        f = ProspectingFilters(situacao_cadastral=None, bairro="centro")
+        sql, params = build_prospecting_query(f)
+        assert "est.bairro ILIKE $1" in sql
+        assert params[0] == "%centro%"
+
+    def test_matriz_filial_condition(self):
+        f = ProspectingFilters(situacao_cadastral=None, matriz_filial=1)
+        sql, params = build_prospecting_query(f)
+        assert "est.matriz_filial = $1" in sql
+        assert params[0] == 1
+
+    def test_data_inicio_min_condition(self):
+        f = ProspectingFilters(situacao_cadastral=None, data_inicio_min=date(2020, 1, 1))
+        sql, params = build_prospecting_query(f)
+        assert "est.data_inicio >= $1" in sql
+        assert params[0] == date(2020, 1, 1)
+
+    def test_data_inicio_max_condition(self):
+        f = ProspectingFilters(situacao_cadastral=None, data_inicio_max=date(2023, 12, 31))
+        sql, params = build_prospecting_query(f)
+        assert "est.data_inicio <= $1" in sql
+        assert params[0] == date(2023, 12, 31)
+
+    def test_natureza_juridica_condition(self):
+        f = ProspectingFilters(situacao_cadastral=None, natureza_juridica=2062)
+        sql, params = build_prospecting_query(f)
+        assert "e.natureza_juridica = $1" in sql
+        assert params[0] == 2062
+
+    def test_opcao_simples_true_adds_join_and_condition(self):
+        f = ProspectingFilters(situacao_cadastral=None, opcao_simples=True)
+        sql, params = build_prospecting_query(f)
+        assert "JOIN simples" in sql
+        assert "s.opcao_simples = $1" in sql
+        assert params[0] == "S"
+
+    def test_opcao_simples_false_filters_non_simples(self):
+        f = ProspectingFilters(situacao_cadastral=None, opcao_simples=False)
+        sql, params = build_prospecting_query(f)
+        assert "JOIN simples" in sql
+        assert params[0] == "N"
+
+    def test_opcao_simples_none_no_join(self):
+        f = ProspectingFilters(situacao_cadastral=None, opcao_simples=None)
+        sql, params = build_prospecting_query(f)
+        assert "JOIN simples" not in sql
+
+    def test_limit_5000_accepted(self):
+        f = ProspectingFilters(limit=5000)
+        assert f.limit == 5000
+
+    def test_limit_5001_raises(self):
+        with pytest.raises(ValidationError):
+            ProspectingFilters(limit=5001)

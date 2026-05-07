@@ -5,7 +5,10 @@ from unittest.mock import MagicMock, patch, call
 import polars as pl
 import pytest
 
-from main import _get_schema_for_file, _process_file, cmd_full_load, cmd_update, cmd_status, main
+from main import (
+    _get_schema_for_file, _process_file, cmd_full_load, cmd_update, cmd_status, main,
+    _vacuum_analyze_all, _table_from_sql,
+)
 from downloader import RFFile
 
 
@@ -257,7 +260,10 @@ class TestCmdFullLoad:
              patch("main.get_connection") as mock_conn_ctx, \
              patch("main.drop_managed_indexes") as mock_drop, \
              patch("main.create_managed_indexes") as mock_create, \
-             patch("main._process_file", return_value=100) as mock_proc:
+             patch("main.download_file", return_value=Path("/tmp/fake.zip")), \
+             patch("main.set_file_state"), \
+             patch("main._process_file", return_value=100) as mock_proc, \
+             patch("main._vacuum_analyze_all") as mock_vacuum:
 
             mock_conn = MagicMock()
             mock_conn_ctx.return_value.__enter__ = MagicMock(return_value=mock_conn)
@@ -267,6 +273,7 @@ class TestCmdFullLoad:
 
         mock_drop.assert_called_once()
         mock_create.assert_called_once()
+        mock_vacuum.assert_called_once()
         assert mock_proc.call_count == 2
 
     def test_full_load_continues_on_error(self):
@@ -276,7 +283,10 @@ class TestCmdFullLoad:
              patch("main.get_connection") as mock_conn_ctx, \
              patch("main.drop_managed_indexes"), \
              patch("main.create_managed_indexes"), \
-             patch("main._process_file", side_effect=[Exception("fail"), 50]) as mock_proc:
+             patch("main.download_file", return_value=Path("/tmp/fake.zip")), \
+             patch("main.set_file_state"), \
+             patch("main._process_file", side_effect=[Exception("fail"), 50]) as mock_proc, \
+             patch("main._vacuum_analyze_all"):
 
             mock_conn = MagicMock()
             mock_conn_ctx.return_value.__enter__ = MagicMock(return_value=mock_conn)
@@ -336,6 +346,60 @@ class TestCmdUpdate:
             cmd_update()
 
         assert mock_proc.call_count == 2
+
+
+class TestTableFromSql:
+    def test_extracts_plain_table(self):
+        sql = "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx ON estabelecimentos (uf)"
+        assert _table_from_sql(sql) == "estabelecimentos"
+
+    def test_extracts_table_with_gin(self):
+        sql = ("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx "
+               "ON empresas USING GIN (to_tsvector('portuguese', razao_social))")
+        assert _table_from_sql(sql) == "empresas"
+
+    def test_extracts_table_with_where(self):
+        sql = ("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx "
+               "ON estabelecimentos (uf, cnpj_basico, cnpj_ordem) WHERE situacao_cadastral = 2")
+        assert _table_from_sql(sql) == "estabelecimentos"
+
+
+class TestVacuumAnalyzeAll:
+    def test_runs_vacuum_on_all_tables(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cur)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch("main.psycopg2.connect", return_value=mock_conn):
+            _vacuum_analyze_all()
+
+        # Deve ter chamado VACUUM ANALYZE para cada tabela única
+        calls_sql = [c[0][0] for c in mock_cur.execute.call_args_list]
+        vacuum_calls = [s for s in calls_sql if "VACUUM ANALYZE" in s]
+        assert len(vacuum_calls) >= 4  # empresas, estabelecimentos, simples, socios
+
+    def test_sets_autocommit(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cur)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch("main.psycopg2.connect", return_value=mock_conn):
+            _vacuum_analyze_all()
+
+        assert mock_conn.autocommit is True
+
+    def test_closes_connection(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cur)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch("main.psycopg2.connect", return_value=mock_conn):
+            _vacuum_analyze_all()
+
+        mock_conn.close.assert_called_once()
 
 
 class TestMain:

@@ -5,6 +5,7 @@ interface Props {
   onLoadMore: () => void
   hasMore: boolean
   searched: boolean
+  onSelectEmpresa: (cnpj: string) => void
 }
 
 const porteLabels: Record<number, string> = {
@@ -26,7 +27,7 @@ const formatPorte = (value: number | null) => (value === null ? '-' : porteLabel
 
 const formatPhone = (value: string | null) => value || '-'
 
-export function ResultsTable({ data, onLoadMore, hasMore, searched }: Props) {
+export function ResultsTable({ data, onLoadMore, hasMore, searched, onSelectEmpresa }: Props) {
   if (data.length === 0) {
     return (
       <div className="flex min-h-96 items-center justify-center rounded-md border border-dashed border-gray-300 bg-white text-sm text-gray-500">
@@ -55,7 +56,7 @@ export function ResultsTable({ data, onLoadMore, hasMore, searched }: Props) {
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
             {data.map(row => (
-              <tr key={row.cnpj_completo} className="hover:bg-blue-50">
+              <tr key={row.cnpj_completo} className="cursor-pointer hover:bg-blue-50" onClick={() => onSelectEmpresa(row.cnpj_completo)}>
                 <td className="px-4 py-3 text-gray-700">{row.cnpj_completo}</td>
                 <td className="truncate px-4 py-3 font-medium text-gray-900" title={row.razao_social}>
                   {row.razao_social}
@@ -67,7 +68,7 @@ export function ResultsTable({ data, onLoadMore, hasMore, searched }: Props) {
                 <td className="truncate px-4 py-3 text-gray-700" title={row.municipio_descricao ?? undefined}>
                   {row.municipio_descricao || '-'}
                 </td>
-                <td className="px-4 py-3 text-gray-700">{row.cnae_principal ?? '-'}</td>
+                <td className="px-4 py-3 text-gray-700">{row.cnae_descricao || row.cnae_principal || '-'}</td>
                 <td className="px-4 py-3 text-gray-700">{formatPhone(row.telefone1)}</td>
                 <td className="truncate px-4 py-3 text-gray-700" title={row.email ?? undefined}>
                   {row.email || '-'}

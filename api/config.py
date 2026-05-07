@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # CORS origins aceitos — separados por vírgula no env
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
+    redis_url: str = "redis://localhost:6379/0"
+
     environment: str = "development"
 
     @property

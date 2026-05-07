@@ -25,16 +25,26 @@ _BASE_SQL = """
     LEFT JOIN municipios m ON m.codigo = est.municipio
 """
 
+_SIMPLES_JOIN = "LEFT JOIN simples s ON s.cnpj_basico = e.cnpj_basico"
+
 
 def build_prospecting_query(f: ProspectingFilters) -> tuple[str, list]:
     """
-    Constrói SQL dinâmico com parâmetros posicionais ($1, $2, …) para asyncpg.
-    Keyset pagination via (cnpj_basico, cnpj_ordem) > cursor evita OFFSET lento.
-    Retorna (sql, params).
+    Builds parameterized SQL ($1, $2, …) for asyncpg.
+    When f.cnpj is set, returns a PK lookup ignoring all other filters.
     """
+    if f.cnpj:
+        sql = (
+            f"{_BASE_SQL}"
+            f" WHERE est.cnpj_basico = $1 AND est.cnpj_ordem = $2 AND est.cnpj_dv = $3"
+            f" LIMIT 1"
+        )
+        return sql, [f.cnpj[:8], f.cnpj[8:12], f.cnpj[12:]]
+
     conditions: list[str] = []
     params: list = []
     p = 1
+    needs_simples = False
 
     if f.situacao_cadastral is not None:
         conditions.append(f"est.situacao_cadastral = ${p}")
@@ -51,13 +61,18 @@ def build_prospecting_query(f: ProspectingFilters) -> tuple[str, list]:
         params.append(f.municipio)
         p += 1
 
-    if f.cnae_principal is not None:
-        conditions.append(f"est.cnae_principal = ${p}")
-        params.append(f.cnae_principal)
+    if f.bairro:
+        conditions.append(f"est.bairro ILIKE ${p}")
+        params.append(f"%{f.bairro}%")
         p += 1
 
-    if f.porte is not None:
-        conditions.append(f"e.porte = ${p}")
+    if f.cnaes:
+        conditions.append(f"est.cnae_principal = ANY(${p}::int[])")
+        params.append(f.cnaes)
+        p += 1
+
+    if f.porte:
+        conditions.append(f"e.porte = ANY(${p}::int[])")
         params.append(f.porte)
         p += 1
 
@@ -74,9 +89,33 @@ def build_prospecting_query(f: ProspectingFilters) -> tuple[str, list]:
         params.append(f.capital_social_max)
         p += 1
 
+    if f.matriz_filial is not None:
+        conditions.append(f"est.matriz_filial = ${p}")
+        params.append(f.matriz_filial)
+        p += 1
+
+    if f.data_inicio_min is not None:
+        conditions.append(f"est.data_inicio >= ${p}")
+        params.append(f.data_inicio_min)
+        p += 1
+
+    if f.data_inicio_max is not None:
+        conditions.append(f"est.data_inicio <= ${p}")
+        params.append(f.data_inicio_max)
+        p += 1
+
+    if f.natureza_juridica is not None:
+        conditions.append(f"e.natureza_juridica = ${p}")
+        params.append(f.natureza_juridica)
+        p += 1
+
+    if f.opcao_simples is not None:
+        needs_simples = True
+        conditions.append(f"s.opcao_simples = ${p}")
+        params.append("S" if f.opcao_simples else "N")
+        p += 1
+
     if f.busca_razao:
-        # ${p} referenciado duas vezes no mesmo fragmento SQL — asyncpg reutiliza o mesmo
-        # parâmetro posicional, portanto apenas um valor é adicionado a params.
         conditions.append(
             f"(to_tsvector('portuguese', e.razao_social) @@ plainto_tsquery('portuguese', ${p})"
             f" OR to_tsvector('portuguese', COALESCE(est.nome_fantasia, '')) @@ plainto_tsquery('portuguese', ${p}))"
@@ -89,6 +128,7 @@ def build_prospecting_query(f: ProspectingFilters) -> tuple[str, list]:
         params.extend([f.cursor_cnpj_basico, f.cursor_cnpj_ordem])
         p += 2
 
+    simples_join = f"\n    {_SIMPLES_JOIN}" if needs_simples else ""
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    sql = f"{_BASE_SQL} {where} ORDER BY est.cnpj_basico, est.cnpj_ordem LIMIT {f.limit}"
+    sql = f"{_BASE_SQL}{simples_join} {where} ORDER BY est.cnpj_basico, est.cnpj_ordem LIMIT {f.limit}"
     return sql, params

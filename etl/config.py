@@ -14,8 +14,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     etl_data_dir: str = "/tmp/cnpj_data"
-    etl_batch_size: int = 50_000
-    etl_workers: int = 4
+    etl_batch_size: int = 500_000
+    etl_workers: int = 4          # mantido para compatibilidade
+    etl_download_workers: int = 2
+    etl_process_workers: int = 6
+    etl_index_workers: int = 4    # índices criados em paralelo
 
     discord_webhook_url: str = ""
     slack_webhook_url: str = ""
