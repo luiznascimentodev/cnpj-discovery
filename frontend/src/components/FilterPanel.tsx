@@ -17,6 +17,7 @@ const PORTES = [
   { value: 3, label: 'EPP' },
   { value: 5, label: 'Demais' },
 ]
+const RESULT_LIMITS = [50, 100, 500, 1000, 5000, 10000, 50000]
 
 export function FilterPanel({ onSearch, loading }: Props) {
   const [cnpj, setCnpj] = useState('')
@@ -44,6 +45,7 @@ export function FilterPanel({ onSearch, loading }: Props) {
   const [dataMax, setDataMax] = useState('')
   const [opcaoSimples, setOpcaoSimples] = useState(false)
   const [naturezaJuridica, setNaturezaJuridica] = useState('')
+  const [resultLimit, setResultLimit] = useState(100)
 
   const cnpjMode = cnpj.trim().length > 0
   const meiInPortes = portes.includes(1)
@@ -68,6 +70,7 @@ export function FilterPanel({ onSearch, loading }: Props) {
       ...(dataMax && { data_inicio_max: dataMax }),
       ...(opcaoSimples && { opcao_simples: true }),
       ...(naturezaJuridica && { natureza_juridica: Number(naturezaJuridica) }),
+      limit: resultLimit,
     }
   }
 
@@ -91,7 +94,8 @@ export function FilterPanel({ onSearch, loading }: Props) {
     setDataMax('')
     setOpcaoSimples(false)
     setNaturezaJuridica('')
-    onSearch({ situacao_cadastral: 2 })
+    setResultLimit(100)
+    onSearch({ situacao_cadastral: 2, limit: 100 })
   }
 
   const inputClass = 'rounded-md border border-gray-300 bg-white px-3 py-2 text-sm'
@@ -166,6 +170,19 @@ export function FilterPanel({ onSearch, loading }: Props) {
           <label className={labelClass}>
             Natureza jurídica
             <input type="number" value={naturezaJuridica} onChange={e => setNaturezaJuridica(e.target.value)} className={inputClass} />
+          </label>
+          <label className={labelClass}>
+            Resultados na tela
+            <select value={resultLimit} onChange={e => setResultLimit(Number(e.target.value))} className={inputClass}>
+              {RESULT_LIMITS.map(value => (
+                <option key={value} value={value}>
+                  {value.toLocaleString('pt-BR')} resultados
+                </option>
+              ))}
+            </select>
+            <span className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs font-normal text-yellow-800">
+              Quanto maior a quantidade, mais a busca pode demorar e consumir memória no navegador.
+            </span>
           </label>
         </div>
 

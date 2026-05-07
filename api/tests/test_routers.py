@@ -137,7 +137,7 @@ class TestProspectingRouter:
         mock_conn = make_mock_conn(fetch_return=[EMPRESA_ROW])
         setup_pool(mock_pool, mock_conn)
 
-        response = await client.get("/v1/prospecting?limit=10")
+        response = await client.get("/v1/prospecting?limit=50")
         assert response.status_code == 200
 
     @pytest.mark.asyncio
@@ -146,7 +146,7 @@ class TestProspectingRouter:
         setup_pool(mock_pool, mock_conn)
 
         response = await client.get(
-            "/v1/prospecting?uf=SP&situacao_cadastral=2&porte=3&limit=20"
+            "/v1/prospecting?uf=SP&situacao_cadastral=2&porte=3&limit=50"
         )
         assert response.status_code == 200
 

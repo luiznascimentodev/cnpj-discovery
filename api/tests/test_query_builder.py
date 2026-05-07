@@ -31,20 +31,20 @@ class TestProspectingFilters:
         assert f.cursor_cnpj_ordem is None
 
     def test_limit_min(self):
-        f = ProspectingFilters(limit=1)
-        assert f.limit == 1
+        f = ProspectingFilters(limit=50)
+        assert f.limit == 50
 
     def test_limit_max(self):
-        f = ProspectingFilters(limit=100)
-        assert f.limit == 100
+        f = ProspectingFilters(limit=50_000)
+        assert f.limit == 50_000
 
     def test_limit_below_min_raises(self):
         with pytest.raises(ValidationError):
-            ProspectingFilters(limit=0)
+            ProspectingFilters(limit=49)
 
     def test_limit_above_max_raises(self):
         with pytest.raises(ValidationError):
-            ProspectingFilters(limit=101)
+            ProspectingFilters(limit=50_001)
 
     def test_uf_max_length(self):
         f = ProspectingFilters(uf="SP")
@@ -395,7 +395,7 @@ class TestBuildProspectingQueryMultipleFilters:
         assert "LIMIT 50" in sql
 
     def test_order_by_always_before_limit(self):
-        f = ProspectingFilters(situacao_cadastral=2, uf="RJ", limit=10)
+        f = ProspectingFilters(situacao_cadastral=2, uf="RJ", limit=50)
         sql, _ = build_prospecting_query(f)
         order_pos = sql.index("ORDER BY")
         limit_pos = sql.index("LIMIT")
@@ -406,7 +406,7 @@ class TestBuildProspectingQueryMultipleFilters:
             situacao_cadastral=2,
             cursor_cnpj_basico="12345678",
             cursor_cnpj_ordem="0001",
-            limit=10,
+            limit=50,
         )
         sql, params = build_prospecting_query(f, include_limit=False)
         assert "LIMIT" not in sql
@@ -576,10 +576,10 @@ class TestBuildProspectingQueryNewFilters:
         sql, params = build_prospecting_query(f)
         assert "JOIN simples" not in sql
 
-    def test_limit_100_accepted(self):
-        f = ProspectingFilters(limit=100)
-        assert f.limit == 100
+    def test_limit_50000_accepted(self):
+        f = ProspectingFilters(limit=50_000)
+        assert f.limit == 50_000
 
-    def test_limit_101_raises(self):
+    def test_limit_50001_raises(self):
         with pytest.raises(ValidationError):
-            ProspectingFilters(limit=101)
+            ProspectingFilters(limit=50_001)

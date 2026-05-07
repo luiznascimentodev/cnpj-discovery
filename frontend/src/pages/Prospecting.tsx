@@ -6,7 +6,7 @@ import { CompanyDetailModal } from '../components/CompanyDetailModal'
 import { FilterPanel } from '../components/FilterPanel'
 import { ResultsTable } from '../components/ResultsTable'
 
-const PAGE_SIZE = 100
+const DEFAULT_PAGE_SIZE = 100
 
 const getCursorFromCnpj = (cnpj: string): Pick<Filters, 'cursor_cnpj_basico' | 'cursor_cnpj_ordem'> => ({
   cursor_cnpj_basico: cnpj.slice(0, 8),
@@ -14,14 +14,14 @@ const getCursorFromCnpj = (cnpj: string): Pick<Filters, 'cursor_cnpj_basico' | '
 })
 
 export function Prospecting() {
-  const [currentFilters, setCurrentFilters] = useState<Filters>({ situacao_cadastral: 2 })
-  const [exportFilters, setExportFilters] = useState<Filters>({ situacao_cadastral: 2 })
+  const [currentFilters, setCurrentFilters] = useState<Filters>({ situacao_cadastral: 2, limit: DEFAULT_PAGE_SIZE })
+  const [exportFilters, setExportFilters] = useState<Filters>({ situacao_cadastral: 2, limit: DEFAULT_PAGE_SIZE })
   const [allResults, setAllResults] = useState<EmpresaOut[]>([])
   const [selectedCnpj, setSelectedCnpj] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
   const [lastPageSize, setLastPageSize] = useState(0)
   const requestRef = useRef<{ filters: Filters; append: boolean }>({
-    filters: { situacao_cadastral: 2 },
+    filters: { situacao_cadastral: 2, limit: DEFAULT_PAGE_SIZE },
     append: false,
   })
 
@@ -69,7 +69,8 @@ export function Prospecting() {
     )
   }
 
-  const hasMore = searched && lastPageSize === PAGE_SIZE
+  const pageSize = currentFilters.limit ?? DEFAULT_PAGE_SIZE
+  const hasMore = searched && lastPageSize === pageSize
 
   return (
     <div className="min-h-screen bg-white text-gray-900 lg:flex">

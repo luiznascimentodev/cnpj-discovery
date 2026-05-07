@@ -39,7 +39,7 @@ def prospecting_filters_dependency(
     natureza_juridica: Annotated[Optional[int], Query()] = None,
     cursor_cnpj_basico: Annotated[Optional[str], Query()] = None,
     cursor_cnpj_ordem: Annotated[Optional[str], Query()] = None,
-    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    limit: Annotated[int, Query(ge=50, le=50_000)] = 100,
 ) -> ProspectingFilters:
     return ProspectingFilters(
         cnpj=cnpj,

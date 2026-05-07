@@ -29,7 +29,7 @@ class ProspectingFilters(BaseModel):
     natureza_juridica: Optional[int] = None
     cursor_cnpj_basico: Optional[str] = None
     cursor_cnpj_ordem: Optional[str] = None
-    limit: int = Field(100, ge=1, le=100)
+    limit: int = Field(100, ge=50, le=50_000)
 
     @model_validator(mode="after")
     def validate_filters(self) -> "ProspectingFilters":
