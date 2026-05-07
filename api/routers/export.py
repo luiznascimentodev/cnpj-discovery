@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 
 from database import get_pool
+from dependencies import prospecting_filters_dependency
 from models.filters import ProspectingFilters
 from services.query_builder import build_prospecting_query
 
@@ -28,7 +29,7 @@ _BATCH_ROWS = 1_000  # número de linhas acumuladas antes de cada yield
         "(limitação inerente ao streaming HTTP)."
     ),
 )
-async def export_csv(filters: ProspectingFilters = Depends()):
+async def export_csv(filters: ProspectingFilters = Depends(prospecting_filters_dependency)):
     filters = filters.model_copy(update={"limit": _EXPORT_LIMIT})
     pool = await get_pool()
     sql, params = build_prospecting_query(filters)

@@ -119,8 +119,27 @@ export interface StatusResponse {
   }>
 }
 
+const buildParams = (filters: Filters): URLSearchParams => {
+  const params = new URLSearchParams()
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === '' || value === null) {
+      return
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach(item => params.append(key, String(item)))
+      return
+    }
+
+    params.set(key, String(value))
+  })
+
+  return params
+}
+
 export const searchEmpresas = (filters: Filters): Promise<EmpresaOut[]> =>
-  api.get<EmpresaOut[]>('/prospecting', { params: filters }).then(r => r.data)
+  api.get<EmpresaOut[]>('/prospecting', { params: buildParams(filters) }).then(r => r.data)
 
 export const getEmpresa = (cnpj: string): Promise<EmpresaDetail> =>
   api.get<EmpresaDetail>(`/empresa/${cnpj}`).then(r => r.data)
@@ -141,11 +160,7 @@ export const getStatus = (): Promise<StatusResponse> =>
   api.get<StatusResponse>('/status').then(r => r.data)
 
 export const buildExportCsvUrl = (filters: Filters): string => {
-  const params = new URLSearchParams(
-    Object.entries(filters)
-      .filter(([, v]) => v !== undefined && v !== '' && v !== null)
-      .map(([k, v]) => [k, Array.isArray(v) ? v.join(',') : String(v)])
-  )
+  const params = buildParams(filters)
   const base = import.meta.env.VITE_API_URL || 'http://localhost:8000/v1'
   return `${base}/export/csv?${params}`
 }

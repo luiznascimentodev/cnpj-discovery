@@ -182,12 +182,13 @@ class TestBuildProspectingQueryNoFilters:
     def test_default_limit_100(self):
         f = ProspectingFilters(situacao_cadastral=None)
         sql, params = build_prospecting_query(f)
-        assert sql.strip().endswith("LIMIT 100")
+        assert "LIMIT 100" in sql
 
     def test_always_has_order_by(self):
         f = ProspectingFilters(situacao_cadastral=None)
         sql, _ = build_prospecting_query(f)
         assert "ORDER BY est.cnpj_basico, est.cnpj_ordem" in sql
+        assert "WITH candidate_est AS MATERIALIZED" in sql
 
     def test_returns_tuple_of_sql_and_list(self):
         f = ProspectingFilters(situacao_cadastral=None)
@@ -391,7 +392,7 @@ class TestBuildProspectingQueryMultipleFilters:
     def test_limit_respected_in_sql(self):
         f = ProspectingFilters(situacao_cadastral=None, limit=50)
         sql, _ = build_prospecting_query(f)
-        assert sql.strip().endswith("LIMIT 50")
+        assert "LIMIT 50" in sql
 
     def test_order_by_always_before_limit(self):
         f = ProspectingFilters(situacao_cadastral=2, uf="RJ", limit=10)
@@ -514,11 +515,12 @@ class TestBuildProspectingQueryCnpjMode:
 
 
 class TestBuildProspectingQueryNewFilters:
-    def test_bairro_uses_ilike(self):
+    def test_bairro_uses_canonical_exact_match(self):
         f = ProspectingFilters(situacao_cadastral=None, bairro="centro")
         sql, params = build_prospecting_query(f)
-        assert "est.bairro ILIKE $1" in sql
-        assert params[0] == "%centro%"
+        assert "upper(est.bairro)" in sql
+        assert "= $1" in sql
+        assert params[0] == "CENTRO"
 
     def test_matriz_filial_condition(self):
         f = ProspectingFilters(situacao_cadastral=None, matriz_filial=1)

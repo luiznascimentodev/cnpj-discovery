@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 
 from cache import cache_get, cache_set, make_cache_key
 from database import get_pool
+from dependencies import prospecting_filters_dependency
 from models.filters import ProspectingFilters
 from models.empresa import EmpresaOut
 from services.query_builder import build_prospecting_query
@@ -18,7 +19,7 @@ _CACHE_TTL = 300  # 5 minutos — dados do RF mudam mensalmente
     tags=["prospecting"],
     summary="Buscar empresas com filtros avançados",
 )
-async def search_empresas(filters: ProspectingFilters = Depends()):
+async def search_empresas(filters: ProspectingFilters = Depends(prospecting_filters_dependency)):
     cache_key = make_cache_key("prospecting", filters.model_dump())
 
     cached = await cache_get(cache_key)
