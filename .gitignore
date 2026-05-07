@@ -59,6 +59,9 @@ ehthumbs.db
 # Redis
 dump.rdb
 
+# Storage / dados RF
+storage/
+
 # Other
 .mypy_cache/
 .dmypy.json
