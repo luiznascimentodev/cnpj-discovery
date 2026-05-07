@@ -6,7 +6,7 @@ import { CompanyDetailModal } from '../components/CompanyDetailModal'
 import { FilterPanel } from '../components/FilterPanel'
 import { ResultsTable } from '../components/ResultsTable'
 
-const DEFAULT_LIMIT = 50
+const PAGE_SIZE = 100
 
 const getCursorFromCnpj = (cnpj: string): Pick<Filters, 'cursor_cnpj_basico' | 'cursor_cnpj_ordem'> => ({
   cursor_cnpj_basico: cnpj.slice(0, 8),
@@ -20,7 +20,7 @@ export function Prospecting() {
   const [searched, setSearched] = useState(false)
   const [lastPageSize, setLastPageSize] = useState(0)
   const requestRef = useRef<{ filters: Filters; append: boolean }>({
-    filters: { situacao_cadastral: 2, limit: DEFAULT_LIMIT },
+    filters: { situacao_cadastral: 2 },
     append: false,
   })
 
@@ -39,9 +39,8 @@ export function Prospecting() {
   })
 
   const runSearch = (filters: Filters, append: boolean) => {
-    const nextFilters = { ...filters, limit: filters.limit ?? DEFAULT_LIMIT }
-    setCurrentFilters(nextFilters)
-    requestRef.current = { filters: nextFilters, append }
+    setCurrentFilters(filters)
+    requestRef.current = { filters, append }
     void refetch()
   }
 
@@ -68,7 +67,7 @@ export function Prospecting() {
     )
   }
 
-  const hasMore = searched && lastPageSize === (currentFilters.limit ?? DEFAULT_LIMIT)
+  const hasMore = searched && lastPageSize === PAGE_SIZE
 
   return (
     <div className="min-h-screen bg-white text-gray-900 lg:flex">
@@ -79,22 +78,22 @@ export function Prospecting() {
           <div>
             <h2 className="text-2xl font-semibold text-gray-900">Empresas</h2>
             <p className="mt-1 text-sm text-gray-500">
-              {searched ? `${allResults.length.toLocaleString('pt-BR')} resultado(s)` : 'Pronto para consulta'}
+              {searched
+                ? `${allResults.length.toLocaleString('pt-BR')} carregado(s)${hasMore ? ' — há mais resultados' : ''}`
+                : 'Pronto para consulta'}
             </p>
           </div>
 
-          <a
-            href={buildExportCsvUrl(currentFilters)}
-            className={`inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white ${
-              searched && allResults.length > 0
-                ? 'bg-green-600 hover:bg-green-700'
-                : 'pointer-events-none bg-gray-300'
-            }`}
-            aria-disabled={!searched || allResults.length === 0}
-          >
-            <Download className="h-4 w-4" />
-            Export CSV
-          </a>
+          {searched && (
+            <a
+              href={buildExportCsvUrl(currentFilters)}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+              title="Exporta todos os resultados do filtro atual (até 100.000 linhas)"
+            >
+              <Download className="h-4 w-4" />
+              Exportar CSV completo
+            </a>
+          )}
         </div>
 
         <ResultsTable

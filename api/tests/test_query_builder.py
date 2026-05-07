@@ -19,7 +19,7 @@ class TestProspectingFilters:
     def test_defaults(self):
         f = ProspectingFilters()
         assert f.situacao_cadastral == 2
-        assert f.limit == 50
+        assert f.limit == 100
         assert f.excluir_mei is False
         assert f.uf is None
         assert f.municipio is None
@@ -35,8 +35,8 @@ class TestProspectingFilters:
         assert f.limit == 1
 
     def test_limit_max(self):
-        f = ProspectingFilters(limit=500)
-        assert f.limit == 500
+        f = ProspectingFilters(limit=100)
+        assert f.limit == 100
 
     def test_limit_below_min_raises(self):
         with pytest.raises(ValidationError):
@@ -44,7 +44,7 @@ class TestProspectingFilters:
 
     def test_limit_above_max_raises(self):
         with pytest.raises(ValidationError):
-            ProspectingFilters(limit=5001)
+            ProspectingFilters(limit=101)
 
     def test_uf_max_length(self):
         f = ProspectingFilters(uf="SP")
@@ -179,10 +179,10 @@ class TestBuildProspectingQueryNoFilters:
         assert "WHERE" not in sql
         assert params == []
 
-    def test_default_limit_50(self):
+    def test_default_limit_100(self):
         f = ProspectingFilters(situacao_cadastral=None)
         sql, params = build_prospecting_query(f)
-        assert sql.strip().endswith("LIMIT 50")
+        assert sql.strip().endswith("LIMIT 100")
 
     def test_always_has_order_by(self):
         f = ProspectingFilters(situacao_cadastral=None)
@@ -389,9 +389,9 @@ class TestBuildProspectingQueryMultipleFilters:
         assert "WHERE" in sql
 
     def test_limit_respected_in_sql(self):
-        f = ProspectingFilters(situacao_cadastral=None, limit=200)
+        f = ProspectingFilters(situacao_cadastral=None, limit=50)
         sql, _ = build_prospecting_query(f)
-        assert sql.strip().endswith("LIMIT 200")
+        assert sql.strip().endswith("LIMIT 50")
 
     def test_order_by_always_before_limit(self):
         f = ProspectingFilters(situacao_cadastral=2, uf="RJ", limit=10)
@@ -562,10 +562,10 @@ class TestBuildProspectingQueryNewFilters:
         sql, params = build_prospecting_query(f)
         assert "JOIN simples" not in sql
 
-    def test_limit_5000_accepted(self):
-        f = ProspectingFilters(limit=5000)
-        assert f.limit == 5000
+    def test_limit_100_accepted(self):
+        f = ProspectingFilters(limit=100)
+        assert f.limit == 100
 
-    def test_limit_5001_raises(self):
+    def test_limit_101_raises(self):
         with pytest.raises(ValidationError):
-            ProspectingFilters(limit=5001)
+            ProspectingFilters(limit=101)

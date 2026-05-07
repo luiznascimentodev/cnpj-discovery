@@ -107,7 +107,6 @@ export interface Filters {
   natureza_juridica?: number
   cursor_cnpj_basico?: string
   cursor_cnpj_ordem?: string
-  limit?: number
 }
 
 export interface StatusResponse {

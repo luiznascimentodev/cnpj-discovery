@@ -44,7 +44,6 @@ export function FilterPanel({ onSearch, loading }: Props) {
   const [dataMax, setDataMax] = useState('')
   const [opcaoSimples, setOpcaoSimples] = useState(false)
   const [naturezaJuridica, setNaturezaJuridica] = useState('')
-  const [limit, setLimit] = useState(50)
 
   const cnpjMode = cnpj.trim().length > 0
   const meiInPortes = portes.includes(1)
@@ -53,7 +52,7 @@ export function FilterPanel({ onSearch, loading }: Props) {
     setPortes(prev => (prev.includes(value) ? prev.filter(p => p !== value) : [...prev, value]))
 
   const buildFilters = (): Filters => {
-    if (cnpjMode) return { cnpj: cnpj.trim(), limit }
+    if (cnpjMode) return { cnpj: cnpj.trim() }
     return {
       situacao_cadastral: 2,
       ...(uf && { uf }),
@@ -69,7 +68,6 @@ export function FilterPanel({ onSearch, loading }: Props) {
       ...(dataMax && { data_inicio_max: dataMax }),
       ...(opcaoSimples && { opcao_simples: true }),
       ...(naturezaJuridica && { natureza_juridica: Number(naturezaJuridica) }),
-      limit,
     }
   }
 
@@ -93,8 +91,7 @@ export function FilterPanel({ onSearch, loading }: Props) {
     setDataMax('')
     setOpcaoSimples(false)
     setNaturezaJuridica('')
-    setLimit(50)
-    onSearch({ situacao_cadastral: 2, limit: 50 })
+    onSearch({ situacao_cadastral: 2 })
   }
 
   const inputClass = 'rounded-md border border-gray-300 bg-white px-3 py-2 text-sm'
@@ -171,13 +168,6 @@ export function FilterPanel({ onSearch, loading }: Props) {
             <input type="number" value={naturezaJuridica} onChange={e => setNaturezaJuridica(e.target.value)} className={inputClass} />
           </label>
         </div>
-
-        <label className={labelClass}>
-          Resultados por página
-          <select value={limit} onChange={e => setLimit(Number(e.target.value))} className={inputClass}>
-            {[50, 100, 250, 500, 1000].map(v => <option key={v} value={v}>{v}</option>)}
-          </select>
-        </label>
 
         <div className="mt-auto grid grid-cols-2 gap-3">
           <button type="button" onClick={handleClear} className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm">
