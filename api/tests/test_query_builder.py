@@ -401,6 +401,18 @@ class TestBuildProspectingQueryMultipleFilters:
         limit_pos = sql.index("LIMIT")
         assert order_pos < limit_pos
 
+    def test_include_limit_false_omits_limit_and_cursor(self):
+        f = ProspectingFilters(
+            situacao_cadastral=2,
+            cursor_cnpj_basico="12345678",
+            cursor_cnpj_ordem="0001",
+            limit=10,
+        )
+        sql, params = build_prospecting_query(f, include_limit=False)
+        assert "LIMIT" not in sql
+        assert "(est.cnpj_basico, est.cnpj_ordem) >" not in sql
+        assert params == [2]
+
     def test_conditions_joined_with_and(self):
         f = ProspectingFilters(situacao_cadastral=2, uf="SP", municipio=3550308)
         sql, _ = build_prospecting_query(f)

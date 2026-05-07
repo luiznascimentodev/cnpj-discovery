@@ -27,6 +27,13 @@ const formatPorte = (value: number | null) => (value === null ? '-' : porteLabel
 
 const formatPhone = (value: string | null) => value || '-'
 
+const formatDate = (value: string | null) => {
+  if (!value) return '-'
+
+  const [year, month, day] = value.split('-')
+  return year && month && day ? `${day}/${month}/${year}` : value
+}
+
 export function ResultsTable({ data, onLoadMore, hasMore, searched, onSelectEmpresa }: Props) {
   if (data.length === 0) {
     return (
@@ -49,6 +56,7 @@ export function ResultsTable({ data, onLoadMore, hasMore, searched, onSelectEmpr
               <th className="w-44 px-4 py-3 text-left font-semibold text-gray-700">Município</th>
               <th className="w-40 px-4 py-3 text-left font-semibold text-gray-700">Bairro</th>
               <th className="w-32 px-4 py-3 text-left font-semibold text-gray-700">CNAE</th>
+              <th className="w-28 px-4 py-3 text-left font-semibold text-gray-700">Abertura</th>
               <th className="w-36 px-4 py-3 text-left font-semibold text-gray-700">Telefone</th>
               <th className="w-56 px-4 py-3 text-left font-semibold text-gray-700">E-mail</th>
               <th className="w-24 px-4 py-3 text-left font-semibold text-gray-700">Porte</th>
@@ -73,6 +81,7 @@ export function ResultsTable({ data, onLoadMore, hasMore, searched, onSelectEmpr
                   {row.bairro || '-'}
                 </td>
                 <td className="px-4 py-3 text-gray-700">{row.cnae_descricao || row.cnae_principal || '-'}</td>
+                <td className="px-4 py-3 text-gray-700">{formatDate(row.data_inicio)}</td>
                 <td className="px-4 py-3 text-gray-700">{formatPhone(row.telefone1)}</td>
                 <td className="truncate px-4 py-3 text-gray-700" title={row.email ?? undefined}>
                   {row.email || '-'}

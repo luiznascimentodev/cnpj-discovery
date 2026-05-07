@@ -44,9 +44,9 @@ class InstrumentedConnection(asyncpg.Connection):
         self._inc()
         return await super().execute(query, *args, **kwargs)
 
-    async def cursor(self, query, *args, **kwargs):  # pragma: no cover
+    def cursor(self, query, *args, **kwargs):  # pragma: no cover
         self._inc()
-        return await super().cursor(query, *args, **kwargs)
+        return super().cursor(query, *args, **kwargs)
 
 
 async def create_pool() -> asyncpg.Pool:

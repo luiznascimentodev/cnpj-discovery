@@ -160,7 +160,10 @@ export const getStatus = (): Promise<StatusResponse> =>
   api.get<StatusResponse>('/status').then(r => r.data)
 
 export const buildExportCsvUrl = (filters: Filters): string => {
-  const params = buildParams(filters)
+  const exportFilters = { ...filters }
+  delete exportFilters.cursor_cnpj_basico
+  delete exportFilters.cursor_cnpj_ordem
+  const params = buildParams(exportFilters)
   const base = import.meta.env.VITE_API_URL || 'http://localhost:8000/v1'
   return `${base}/export/csv?${params}`
 }

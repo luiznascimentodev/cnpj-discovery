@@ -42,16 +42,13 @@ def make_mock_conn(
     if fetchval_side_effect is not None:
         mock_conn.fetchval.side_effect = fetchval_side_effect
 
-    # cursor — deve retornar um async iterator diretamente (não corrotina)
-    # conn.cursor() é usado como `async for row in conn.cursor(...):`
+    # cursor — asyncpg cursor factory is used directly as an async iterator.
     rows = cursor_rows if cursor_rows is not None else []
 
     async def _cursor_gen(*args, **kwargs):
         for row in rows:
             yield row
 
-    # cursor deve ser MagicMock para que cursor() retorne o async generator
-    # diretamente, sem ser awaited
     mock_conn.cursor = MagicMock(return_value=_cursor_gen())
 
     # transaction() — deve retornar um async context manager diretamente
@@ -301,17 +298,19 @@ class TestExportRouter:
         assert len(data_lines) == _BATCH_ROWS + 2  # header + _BATCH_ROWS+1 data rows
 
     @pytest.mark.asyncio
-    async def test_export_limit_overridden_to_100k(self, client: AsyncClient, mock_pool):
-        """Verifica que o limit do filtro é sempre 100_000 no export."""
+    async def test_export_ignores_limit_and_cursor(self, client: AsyncClient, mock_pool):
+        """Export must stream all rows for the filter, independent of visible pagination."""
         mock_conn = make_mock_conn(cursor_rows=[EMPRESA_ROW])
         setup_pool(mock_pool, mock_conn)
 
-        response = await client.get("/v1/export/csv?limit=10")
+        response = await client.get(
+            "/v1/export/csv?limit=10&cursor_cnpj_basico=12345678&cursor_cnpj_ordem=0001"
+        )
         assert response.status_code == 200
-        # O SQL gerado deve conter LIMIT 100000
         call_args = mock_conn.cursor.call_args[0]
         sql = call_args[0]
-        assert "LIMIT 100000" in sql
+        assert "LIMIT" not in sql
+        assert "(est.cnpj_basico, est.cnpj_ordem) >" not in sql
 
     @pytest.mark.asyncio
     async def test_export_logs_and_reraises_db_error(self, client: AsyncClient, mock_pool):

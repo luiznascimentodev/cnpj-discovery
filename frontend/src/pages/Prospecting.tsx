@@ -15,6 +15,7 @@ const getCursorFromCnpj = (cnpj: string): Pick<Filters, 'cursor_cnpj_basico' | '
 
 export function Prospecting() {
   const [currentFilters, setCurrentFilters] = useState<Filters>({ situacao_cadastral: 2 })
+  const [exportFilters, setExportFilters] = useState<Filters>({ situacao_cadastral: 2 })
   const [allResults, setAllResults] = useState<EmpresaOut[]>([])
   const [selectedCnpj, setSelectedCnpj] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
@@ -47,6 +48,7 @@ export function Prospecting() {
   const handleSearch = (filters: Filters) => {
     setAllResults([])
     setLastPageSize(0)
+    setExportFilters(filters)
     setSearched(true)
     runSearch(filters, false)
   }
@@ -85,14 +87,19 @@ export function Prospecting() {
           </div>
 
           {searched && (
-            <a
-              href={buildExportCsvUrl(currentFilters)}
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
-              title="Exporta todos os resultados do filtro atual (até 100.000 linhas)"
-            >
-              <Download className="h-4 w-4" />
-              Exportar CSV completo
-            </a>
+            <div className="flex flex-col gap-1 sm:items-end">
+              <a
+                href={buildExportCsvUrl(exportFilters)}
+                className="inline-flex items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+                title="Exporta todos os resultados que correspondem aos filtros atuais, não apenas os carregados na tela."
+              >
+                <Download className="h-4 w-4" />
+                Exportar CSV completo
+              </a>
+              <span className="text-xs text-gray-500">
+                Exporta 100% dos resultados desses filtros, não apenas os {allResults.length.toLocaleString('pt-BR')} carregados.
+              </span>
+            </div>
           )}
         </div>
 

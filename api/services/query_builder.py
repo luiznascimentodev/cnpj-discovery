@@ -63,7 +63,7 @@ WITH candidate_est AS MATERIALIZED (
 """
 
 
-def build_prospecting_query(f: ProspectingFilters) -> tuple[str, list]:
+def build_prospecting_query(f: ProspectingFilters, *, include_limit: bool = True) -> tuple[str, list]:
     """
     Builds parameterized SQL ($1, $2, …) for asyncpg.
     When f.cnpj is set, returns a PK lookup ignoring all other filters.
@@ -154,12 +154,12 @@ def build_prospecting_query(f: ProspectingFilters) -> tuple[str, list]:
         params.append("S" if f.opcao_simples else "N")
         p += 1
 
-    if f.cursor_cnpj_basico and f.cursor_cnpj_ordem:
+    if include_limit and f.cursor_cnpj_basico and f.cursor_cnpj_ordem:
         est_conditions.append(f"(est.cnpj_basico, est.cnpj_ordem) > (${p}, ${p + 1})")
         params.extend([f.cursor_cnpj_basico, f.cursor_cnpj_ordem])
         p += 2
 
-    if not company_conditions and not simples_conditions:
+    if include_limit and not company_conditions and not simples_conditions:
         where = ("WHERE " + " AND ".join(est_conditions)) if est_conditions else ""
         sql = (
             _EST_ONLY_CANDIDATE_SQL.format(where=where, limit=f.limit)
@@ -177,5 +177,6 @@ def build_prospecting_query(f: ProspectingFilters) -> tuple[str, list]:
     simples_join = f"\n    {_SIMPLES_JOIN}" if needs_simples else ""
     conditions = est_conditions + company_conditions + simples_conditions
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    sql = f"{_SELECT_SQL}{_FROM_SQL}{simples_join} {where} ORDER BY est.cnpj_basico, est.cnpj_ordem LIMIT {f.limit}"
+    limit = f" LIMIT {f.limit}" if include_limit else ""
+    sql = f"{_SELECT_SQL}{_FROM_SQL}{simples_join} {where} ORDER BY est.cnpj_basico, est.cnpj_ordem{limit}"
     return sql, params
