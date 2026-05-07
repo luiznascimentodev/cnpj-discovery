@@ -17,6 +17,7 @@ class EmpresaOut(BaseModel):
     uf: Optional[str] = None
     municipio: Optional[int] = None
     municipio_descricao: Optional[str] = None
+    bairro: Optional[str] = None
     email: Optional[str] = None
     telefone1: Optional[str] = None
     porte: Optional[int] = None

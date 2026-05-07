@@ -47,6 +47,7 @@ export function ResultsTable({ data, onLoadMore, hasMore, searched, onSelectEmpr
               <th className="w-52 px-4 py-3 text-left font-semibold text-gray-700">Fantasia</th>
               <th className="w-16 px-4 py-3 text-left font-semibold text-gray-700">UF</th>
               <th className="w-44 px-4 py-3 text-left font-semibold text-gray-700">Município</th>
+              <th className="w-40 px-4 py-3 text-left font-semibold text-gray-700">Bairro</th>
               <th className="w-32 px-4 py-3 text-left font-semibold text-gray-700">CNAE</th>
               <th className="w-36 px-4 py-3 text-left font-semibold text-gray-700">Telefone</th>
               <th className="w-56 px-4 py-3 text-left font-semibold text-gray-700">E-mail</th>
@@ -67,6 +68,9 @@ export function ResultsTable({ data, onLoadMore, hasMore, searched, onSelectEmpr
                 <td className="px-4 py-3 text-gray-700">{row.uf || '-'}</td>
                 <td className="truncate px-4 py-3 text-gray-700" title={row.municipio_descricao ?? undefined}>
                   {row.municipio_descricao || '-'}
+                </td>
+                <td className="truncate px-4 py-3 text-gray-700" title={row.bairro ?? undefined}>
+                  {row.bairro || '-'}
                 </td>
                 <td className="px-4 py-3 text-gray-700">{row.cnae_descricao || row.cnae_principal || '-'}</td>
                 <td className="px-4 py-3 text-gray-700">{formatPhone(row.telefone1)}</td>

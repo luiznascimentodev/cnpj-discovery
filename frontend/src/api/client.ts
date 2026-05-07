@@ -17,6 +17,7 @@ export interface EmpresaOut {
   uf: string | null
   municipio: number | null
   municipio_descricao: string | null
+  bairro: string | null
   email: string | null
   telefone1: string | null
   porte: number | null
@@ -99,7 +100,6 @@ export interface Filters {
   excluir_mei?: boolean
   capital_social_min?: number
   capital_social_max?: number
-  busca_razao?: string
   matriz_filial?: number
   data_inicio_min?: string
   data_inicio_max?: string
@@ -125,6 +125,15 @@ export const searchEmpresas = (filters: Filters): Promise<EmpresaOut[]> =>
 
 export const getEmpresa = (cnpj: string): Promise<EmpresaDetail> =>
   api.get<EmpresaDetail>(`/empresa/${cnpj}`).then(r => r.data)
+
+export interface BairroItem {
+  bairro: string
+  municipio: number | null
+  municipio_descricao: string | null
+}
+
+export const getBairros = (uf: string, q: string): Promise<BairroItem[]> =>
+  api.get<BairroItem[]>('/bairros', { params: { uf, q } }).then(r => r.data)
 
 export const getCnaes = (): Promise<CnaeGroup[]> =>
   api.get<{ segments: CnaeGroup[] }>('/cnaes').then(r => r.data.segments)

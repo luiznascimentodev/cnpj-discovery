@@ -22,7 +22,6 @@ class ProspectingFilters(BaseModel):
     excluir_mei: bool = Field(False)
     capital_social_min: Optional[float] = Field(None, ge=0)
     capital_social_max: Optional[float] = Field(None, ge=0)
-    busca_razao: Optional[str] = Field(None, min_length=2, max_length=200)
     matriz_filial: Optional[int] = Field(None, description="1=Matriz, 2=Filial")
     data_inicio_min: Optional[date] = None
     data_inicio_max: Optional[date] = None

@@ -27,7 +27,6 @@ class TestProspectingFilters:
         assert f.porte is None
         assert f.capital_social_min is None
         assert f.capital_social_max is None
-        assert f.busca_razao is None
         assert f.cursor_cnpj_basico is None
         assert f.cursor_cnpj_ordem is None
 
@@ -46,14 +45,6 @@ class TestProspectingFilters:
     def test_limit_above_max_raises(self):
         with pytest.raises(ValidationError):
             ProspectingFilters(limit=5001)
-
-    def test_busca_razao_min_length(self):
-        f = ProspectingFilters(busca_razao="ab")
-        assert f.busca_razao == "ab"
-
-    def test_busca_razao_too_short_raises(self):
-        with pytest.raises(ValidationError):
-            ProspectingFilters(busca_razao="a")
 
     def test_uf_max_length(self):
         f = ProspectingFilters(uf="SP")
@@ -317,32 +308,6 @@ class TestBuildProspectingQueryCapitalSocial:
         assert params == [1000.0, 9000.0]
 
 
-class TestBuildProspectingQueryBuscaRazao:
-    def test_adds_fulltext_condition(self):
-        f = ProspectingFilters(situacao_cadastral=None, busca_razao="tecnologia")
-        sql, params = build_prospecting_query(f)
-        assert "to_tsvector" in sql
-        assert "plainto_tsquery" in sql
-        assert params[0] == "tecnologia"
-
-    def test_same_param_index_used_twice(self):
-        """busca_razao uses $p for both razao_social and nome_fantasia."""
-        f = ProspectingFilters(situacao_cadastral=None, busca_razao="software")
-        sql, params = build_prospecting_query(f)
-        # param index $1 should appear twice in the condition (once for each tsvector)
-        assert sql.count("$1") == 2
-        # only one param appended
-        assert len(params) == 1
-
-    def test_busca_razao_after_situacao_uses_correct_index(self):
-        f = ProspectingFilters(situacao_cadastral=2, busca_razao="logistica")
-        sql, params = build_prospecting_query(f)
-        # situacao_cadastral takes $1, busca_razao takes $2 (used twice)
-        assert "est.situacao_cadastral = $1" in sql
-        assert sql.count("$2") == 2
-        assert params == [2, "logistica"]
-
-
 class TestBuildProspectingQueryCursor:
     def test_cursor_both_fields_adds_keyset(self):
         f = ProspectingFilters(
@@ -400,15 +365,14 @@ class TestBuildProspectingQueryMultipleFilters:
             excluir_mei=True,
             capital_social_min=5000.0,
             capital_social_max=1000000.0,
-            busca_razao="mercearia",
             cursor_cnpj_basico="11111111",
             cursor_cnpj_ordem="0001",
             limit=100,
         )
         sql, params = build_prospecting_query(f)
         # situacao=1, uf=2, municipio=3, cnaes=4, porte=5,
-        # excluir_mei adds no param, capital_min=6, capital_max=7, busca=8, cursor=9,10
-        assert len(params) == 10
+        # excluir_mei adds no param, capital_min=6, capital_max=7, cursor=8,9
+        assert len(params) == 9
         assert params[0] == 2            # situacao_cadastral
         assert params[1] == "MG"         # uf (uppercased)
         assert params[2] == 3106200      # municipio
@@ -416,9 +380,8 @@ class TestBuildProspectingQueryMultipleFilters:
         assert params[4] == [3]          # porte
         assert params[5] == 5000.0       # capital_social_min
         assert params[6] == 1000000.0    # capital_social_max
-        assert params[7] == "mercearia"  # busca_razao
-        assert params[8] == "11111111"   # cursor_basico
-        assert params[9] == "0001"       # cursor_ordem
+        assert params[7] == "11111111"   # cursor_basico
+        assert params[8] == "0001"       # cursor_ordem
 
     def test_all_filters_sql_has_where(self):
         f = ProspectingFilters(situacao_cadastral=2, uf="SP")

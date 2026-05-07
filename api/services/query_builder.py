@@ -14,6 +14,7 @@ _BASE_SQL = """
         est.uf,
         est.municipio,
         m.descricao AS municipio_descricao,
+        est.bairro,
         est.email,
         NULLIF(TRIM(COALESCE(est.ddd1, '') || COALESCE(est.telefone1, '')), '') AS telefone1,
         e.porte,
@@ -43,8 +44,8 @@ def build_prospecting_query(f: ProspectingFilters) -> tuple[str, list]:
 
     conditions: list[str] = []
     params: list = []
-    p = 1
     needs_simples = False
+    p = 1
 
     if f.situacao_cadastral is not None:
         conditions.append(f"est.situacao_cadastral = ${p}")
@@ -113,14 +114,6 @@ def build_prospecting_query(f: ProspectingFilters) -> tuple[str, list]:
         needs_simples = True
         conditions.append(f"s.opcao_simples = ${p}")
         params.append("S" if f.opcao_simples else "N")
-        p += 1
-
-    if f.busca_razao:
-        conditions.append(
-            f"(to_tsvector('portuguese', e.razao_social) @@ plainto_tsquery('portuguese', ${p})"
-            f" OR to_tsvector('portuguese', COALESCE(est.nome_fantasia, '')) @@ plainto_tsquery('portuguese', ${p}))"
-        )
-        params.append(f.busca_razao)
         p += 1
 
     if f.cursor_cnpj_basico and f.cursor_cnpj_ordem:

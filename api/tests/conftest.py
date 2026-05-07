@@ -32,6 +32,7 @@ async def client(mock_pool):
         patch("routers.status.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.cnaes.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.empresa.get_pool", new_callable=AsyncMock, return_value=mock_pool),
+        patch("routers.bairros.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         # cache_get retorna None por padrão (cache miss) — testes individuais podem sobrescrever
         patch("routers.prospecting.cache_get", new_callable=AsyncMock, return_value=None),
         patch("routers.prospecting.cache_set", new_callable=AsyncMock),
@@ -39,6 +40,8 @@ async def client(mock_pool):
         patch("routers.cnaes.cache_set", new_callable=AsyncMock),
         patch("routers.empresa.cache_get", new_callable=AsyncMock, return_value=None),
         patch("routers.empresa.cache_set", new_callable=AsyncMock),
+        patch("routers.bairros.cache_get", new_callable=AsyncMock, return_value=None),
+        patch("routers.bairros.cache_set", new_callable=AsyncMock),
     ):
         mock_create.return_value = mock_pool
         async with AsyncClient(

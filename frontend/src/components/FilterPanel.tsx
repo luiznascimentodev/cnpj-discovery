@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Loader2, RotateCcw, Search } from 'lucide-react'
 import type { Filters } from '../api/client'
+import type { BairroSelection } from './BairroAutocomplete'
+import { BairroAutocomplete } from './BairroAutocomplete'
 import { CnaeSelector } from './CnaeSelector'
 
 interface Props {
@@ -18,9 +20,20 @@ const PORTES = [
 
 export function FilterPanel({ onSearch, loading }: Props) {
   const [cnpj, setCnpj] = useState('')
-  const [buscaRazao, setBuscaRazao] = useState('')
   const [uf, setUf] = useState('')
   const [bairro, setBairro] = useState('')
+  const [municipioBairro, setMunicipioBairro] = useState<number | undefined>(undefined)
+
+  const handleUfChange = (newUf: string) => {
+    setUf(newUf)
+    setBairro('')
+    setMunicipioBairro(undefined)
+  }
+
+  const handleBairroChange = ({ bairro: b, municipio: mun }: BairroSelection) => {
+    setBairro(b)
+    setMunicipioBairro(mun)
+  }
   const [selectedCnaes, setSelectedCnaes] = useState<number[]>([])
   const [portes, setPortes] = useState<number[]>([])
   const [excluirMei, setExcluirMei] = useState(false)
@@ -43,9 +56,9 @@ export function FilterPanel({ onSearch, loading }: Props) {
     if (cnpjMode) return { cnpj: cnpj.trim(), limit }
     return {
       situacao_cadastral: 2,
-      ...(buscaRazao.trim() && { busca_razao: buscaRazao.trim() }),
       ...(uf && { uf }),
       ...(bairro.trim() && { bairro: bairro.trim() }),
+      ...(municipioBairro !== undefined && { municipio: municipioBairro }),
       ...(selectedCnaes.length > 0 && { cnaes: selectedCnaes }),
       ...(portes.length > 0 && { porte: portes }),
       ...(!meiInPortes && excluirMei && { excluir_mei: true }),
@@ -67,9 +80,9 @@ export function FilterPanel({ onSearch, loading }: Props) {
 
   const handleClear = () => {
     setCnpj('')
-    setBuscaRazao('')
     setUf('')
     setBairro('')
+    setMunicipioBairro(undefined)
     setSelectedCnaes([])
     setPortes([])
     setExcluirMei(false)
@@ -98,20 +111,16 @@ export function FilterPanel({ onSearch, loading }: Props) {
 
         <div className={cnpjMode ? 'pointer-events-none opacity-50' : ''}>
           <label className={labelClass}>
-            Razão social ou fantasia
-            <input value={buscaRazao} onChange={e => setBuscaRazao(e.target.value)} className={inputClass} />
-          </label>
-          <label className={labelClass}>
             UF
-            <select value={uf} onChange={e => setUf(e.target.value)} className={inputClass}>
+            <select value={uf} onChange={e => handleUfChange(e.target.value)} className={inputClass}>
               <option value="">Todos</option>
               {UFS.map(x => <option key={x} value={x}>{x}</option>)}
             </select>
           </label>
-          <label className={labelClass}>
+          <div className={labelClass}>
             Bairro
-            <input value={bairro} onChange={e => setBairro(e.target.value)} className={inputClass} />
-          </label>
+            <BairroAutocomplete uf={uf} value={bairro} onChange={handleBairroChange} />
+          </div>
           <div className={labelClass}>
             CNAE
             <CnaeSelector selected={selectedCnaes} onChange={setSelectedCnaes} />

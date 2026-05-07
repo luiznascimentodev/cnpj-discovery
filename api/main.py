@@ -22,7 +22,7 @@ from database import create_pool, close_pool
 from middleware.concurrency_monitor import ThunderingHerdMiddleware
 from middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
 from middleware.query_monitor import N1DetectorMiddleware
-from routers import cnaes, empresa, export, prospecting, status
+from routers import bairros, cnaes, empresa, export, prospecting, status
 
 
 @asynccontextmanager
@@ -92,6 +92,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": "1.0.0"}
 
     app.include_router(prospecting.router, prefix="/v1")
+    app.include_router(bairros.router, prefix="/v1")
     app.include_router(cnaes.router, prefix="/v1")
     app.include_router(empresa.router, prefix="/v1")
     app.include_router(export.router, prefix="/v1")
