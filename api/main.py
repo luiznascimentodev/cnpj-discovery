@@ -22,7 +22,7 @@ from database import create_pool, close_pool
 from middleware.concurrency_monitor import ThunderingHerdMiddleware
 from middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
 from middleware.query_monitor import N1DetectorMiddleware
-from routers import bairros, cnaes, empresa, export, prospecting, status
+from routers import bairros, cnaes, empresa, export, paid_enrichment, prospecting, status
 
 
 @asynccontextmanager
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
             {"name": "health", "description": "Health check e liveness probe"},
             {"name": "prospecting", "description": "Busca e filtros de empresas"},
             {"name": "export", "description": "Exportação de dados em CSV"},
+            {"name": "paid_enrichment", "description": "Dados pagos de enriquecimento via crawler"},
             {"name": "status", "description": "Status do ETL e estatísticas"},
         ],
         lifespan=lifespan,
@@ -95,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(bairros.router, prefix="/v1")
     app.include_router(cnaes.router, prefix="/v1")
     app.include_router(empresa.router, prefix="/v1")
+    app.include_router(paid_enrichment.router, prefix="/v1")
     app.include_router(export.router, prefix="/v1")
     app.include_router(status.router, prefix="/v1")
 

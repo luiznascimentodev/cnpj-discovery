@@ -1,12 +1,12 @@
 services:
   postgres:
-    ports: []
+    ports: !reset []
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/migrations:/docker-entrypoint-initdb.d
 
   redis:
-    ports: []
+    ports: !reset []
 
   api:
     build: false
@@ -14,6 +14,12 @@ services:
     restart: always
     ports:
       - "8000:8000"
+
+  enrichment:
+    build: false
+    image: cnpj-discovery-enrichment:latest
+    restart: always
+    ports: !reset []
 
   nginx:
     ports:

@@ -179,7 +179,9 @@ class TestLifespan:
     async def test_lifespan_calls_create_and_close_pool(self):
         """Exercises lines 28-30 in main.py (lifespan body)."""
         with patch("main.create_pool", new_callable=AsyncMock) as mock_create, \
-             patch("main.close_pool", new_callable=AsyncMock) as mock_close:
+             patch("main.close_pool", new_callable=AsyncMock) as mock_close, \
+             patch("main.create_cache", new_callable=AsyncMock), \
+             patch("main.close_cache", new_callable=AsyncMock):
             app = create_app()
             async with AsyncClient(
                 transport=ASGITransport(app=app, raise_app_exceptions=True),

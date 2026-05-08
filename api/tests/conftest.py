@@ -1,7 +1,9 @@
 """Fixtures compartilhadas para testes da API."""
+from contextlib import ExitStack
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient, ASGITransport
-from unittest.mock import AsyncMock, patch
 
 from main import create_app
 
@@ -21,8 +23,8 @@ async def client(mock_pool):
     """
     app = create_app()
 
-    with (
-        patch("main.create_pool", new_callable=AsyncMock) as mock_create,
+    patchers = [
+        patch("main.create_pool", new_callable=AsyncMock),
         patch("main.close_pool", new_callable=AsyncMock),
         patch("main.create_cache", new_callable=AsyncMock),
         patch("main.close_cache", new_callable=AsyncMock),
@@ -33,7 +35,7 @@ async def client(mock_pool):
         patch("routers.cnaes.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.empresa.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.bairros.get_pool", new_callable=AsyncMock, return_value=mock_pool),
-        # cache_get retorna None por padrão (cache miss) — testes individuais podem sobrescrever
+        patch("routers.paid_enrichment.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.prospecting.cache_get", new_callable=AsyncMock, return_value=None),
         patch("routers.prospecting.cache_set", new_callable=AsyncMock),
         patch("routers.cnaes.cache_get", new_callable=AsyncMock, return_value=None),
@@ -42,7 +44,11 @@ async def client(mock_pool):
         patch("routers.empresa.cache_set", new_callable=AsyncMock),
         patch("routers.bairros.cache_get", new_callable=AsyncMock, return_value=None),
         patch("routers.bairros.cache_set", new_callable=AsyncMock),
-    ):
+    ]
+
+    with ExitStack() as stack:
+        mocks = [stack.enter_context(patcher) for patcher in patchers]
+        mock_create = mocks[0]
         mock_create.return_value = mock_pool
         async with AsyncClient(
             transport=ASGITransport(app=app),

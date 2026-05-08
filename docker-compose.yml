@@ -80,6 +80,9 @@ services:
     environment:
       POSTGRES_HOST: postgres
       REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_SERVICE_URL: http://enrichment:8010
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      PAID_CONTACT_FEATURE_KEY: ${PAID_CONTACT_FEATURE_KEY:-crawler_contacts}
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,6 +110,31 @@ services:
         condition: service_healthy
     profiles:
       - etl
+
+  enrichment:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    container_name: cnpj-enrichment
+    ports:
+      - "8010:8010"
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_HOST: 0.0.0.0
+      ENRICHMENT_PORT: 8010
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   nginx:
     image: nginx:alpine

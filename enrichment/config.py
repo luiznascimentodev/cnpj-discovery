@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_INTERNAL_API_KEY = "development-enrichment-key"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -12,16 +14,11 @@ class Settings(BaseSettings):
     postgres_user: str = "cnpj_user"
     postgres_password: str = "changeme"
 
-    api_host: str = "0.0.0.0"
-    api_port: int = 8000
-    # CORS origins aceitos — separados por vírgula no env
-    cors_origins: str = "http://localhost:3000,http://localhost:5173"
-
     redis_url: str = "redis://localhost:6379/0"
 
-    enrichment_service_url: str = "http://localhost:8010"
-    enrichment_api_key: str = "development-enrichment-key"
-    paid_contact_feature_key: str = "crawler_contacts"
+    enrichment_host: str = "0.0.0.0"
+    enrichment_port: int = 8010
+    enrichment_api_key: str = DEFAULT_INTERNAL_API_KEY
 
     environment: str = "development"
 
@@ -33,8 +30,13 @@ class Settings(BaseSettings):
         )
 
     @property
-    def cors_origins_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+    def is_production(self) -> bool:
+        return self.environment.lower() == "production"
+
+    def validate_runtime_security(self) -> None:
+        if self.is_production and self.enrichment_api_key == DEFAULT_INTERNAL_API_KEY:
+            raise RuntimeError("ENRICHMENT_API_KEY must be changed in production")
 
 
 settings = Settings()
+

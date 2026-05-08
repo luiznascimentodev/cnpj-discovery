@@ -19,7 +19,52 @@ def _parse_int_list(*groups: Optional[list[str]]) -> Optional[list[int]]:
     return values or None
 
 
-def prospecting_filters_dependency(
+def _build_filters(
+    *,
+    cnpj: Optional[str],
+    uf: Optional[str],
+    municipio: Optional[int],
+    bairro: Optional[str],
+    cnaes: Optional[list[str]],
+    cnaes_bracket: Optional[list[str]],
+    situacao_cadastral: Optional[int],
+    porte: Optional[list[str]],
+    porte_bracket: Optional[list[str]],
+    excluir_mei: bool,
+    capital_social_min: Optional[float],
+    capital_social_max: Optional[float],
+    matriz_filial: Optional[int],
+    data_inicio_min: Optional[date],
+    data_inicio_max: Optional[date],
+    opcao_simples: Optional[bool],
+    natureza_juridica: Optional[int],
+    cursor_cnpj_basico: Optional[str],
+    cursor_cnpj_ordem: Optional[str],
+    limit: int,
+) -> ProspectingFilters:
+    return ProspectingFilters(
+        cnpj=cnpj,
+        uf=uf,
+        municipio=municipio,
+        bairro=bairro,
+        cnaes=_parse_int_list(cnaes, cnaes_bracket),
+        situacao_cadastral=situacao_cadastral,
+        porte=_parse_int_list(porte, porte_bracket),
+        excluir_mei=excluir_mei,
+        capital_social_min=capital_social_min,
+        capital_social_max=capital_social_max,
+        matriz_filial=matriz_filial,
+        data_inicio_min=data_inicio_min,
+        data_inicio_max=data_inicio_max,
+        opcao_simples=opcao_simples,
+        natureza_juridica=natureza_juridica,
+        cursor_cnpj_basico=cursor_cnpj_basico,
+        cursor_cnpj_ordem=cursor_cnpj_ordem,
+        limit=limit,
+    )
+
+
+async def prospecting_filters_dependency(
     cnpj: Annotated[Optional[str], Query()] = None,
     uf: Annotated[Optional[str], Query(max_length=2)] = None,
     municipio: Annotated[Optional[int], Query()] = None,
@@ -41,14 +86,16 @@ def prospecting_filters_dependency(
     cursor_cnpj_ordem: Annotated[Optional[str], Query()] = None,
     limit: Annotated[int, Query(ge=50, le=50_000)] = 100,
 ) -> ProspectingFilters:
-    return ProspectingFilters(
+    return _build_filters(
         cnpj=cnpj,
         uf=uf,
         municipio=municipio,
         bairro=bairro,
-        cnaes=_parse_int_list(cnaes, cnaes_bracket),
+        cnaes=cnaes,
+        cnaes_bracket=cnaes_bracket,
         situacao_cadastral=situacao_cadastral,
-        porte=_parse_int_list(porte, porte_bracket),
+        porte=porte,
+        porte_bracket=porte_bracket,
         excluir_mei=excluir_mei,
         capital_social_min=capital_social_min,
         capital_social_max=capital_social_max,
@@ -60,4 +107,47 @@ def prospecting_filters_dependency(
         cursor_cnpj_basico=cursor_cnpj_basico,
         cursor_cnpj_ordem=cursor_cnpj_ordem,
         limit=limit,
+    )
+
+
+async def export_filters_dependency(
+    cnpj: Annotated[Optional[str], Query()] = None,
+    uf: Annotated[Optional[str], Query(max_length=2)] = None,
+    municipio: Annotated[Optional[int], Query()] = None,
+    bairro: Annotated[Optional[str], Query(min_length=2, max_length=100)] = None,
+    cnaes: Annotated[Optional[list[str]], Query()] = None,
+    cnaes_bracket: Annotated[Optional[list[str]], Query(alias="cnaes[]")] = None,
+    situacao_cadastral: Annotated[Optional[int], Query()] = 2,
+    porte: Annotated[Optional[list[str]], Query()] = None,
+    porte_bracket: Annotated[Optional[list[str]], Query(alias="porte[]")] = None,
+    excluir_mei: Annotated[bool, Query()] = False,
+    capital_social_min: Annotated[Optional[float], Query(ge=0)] = None,
+    capital_social_max: Annotated[Optional[float], Query(ge=0)] = None,
+    matriz_filial: Annotated[Optional[int], Query()] = None,
+    data_inicio_min: Annotated[Optional[date], Query()] = None,
+    data_inicio_max: Annotated[Optional[date], Query()] = None,
+    opcao_simples: Annotated[Optional[bool], Query()] = None,
+    natureza_juridica: Annotated[Optional[int], Query()] = None,
+) -> ProspectingFilters:
+    return _build_filters(
+        cnpj=cnpj,
+        uf=uf,
+        municipio=municipio,
+        bairro=bairro,
+        cnaes=cnaes,
+        cnaes_bracket=cnaes_bracket,
+        situacao_cadastral=situacao_cadastral,
+        porte=porte,
+        porte_bracket=porte_bracket,
+        excluir_mei=excluir_mei,
+        capital_social_min=capital_social_min,
+        capital_social_max=capital_social_max,
+        matriz_filial=matriz_filial,
+        data_inicio_min=data_inicio_min,
+        data_inicio_max=data_inicio_max,
+        opcao_simples=opcao_simples,
+        natureza_juridica=natureza_juridica,
+        cursor_cnpj_basico=None,
+        cursor_cnpj_ordem=None,
+        limit=100,
     )
