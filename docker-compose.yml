@@ -136,6 +136,39 @@ services:
       timeout: 10s
       retries: 3
 
+  enrichment-worker:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    container_name: cnpj-enrichment-worker
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+    command:
+      - python
+      - cli.py
+      - worker
+      - --interval
+      - "${ENRICHMENT_WORKER_INTERVAL:-30}"
+      - --seed-batch-size
+      - "${ENRICHMENT_SEED_BATCH:-1000}"
+      - --discovery-batch-size
+      - "${ENRICHMENT_DISCOVERY_BATCH:-20}"
+      - --crawl-batch-size
+      - "${ENRICHMENT_CRAWL_BATCH:-20}"
+      - --lease-seconds
+      - "${ENRICHMENT_LEASE_SECONDS:-600}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - worker
+
   nginx:
     image: nginx:alpine
     container_name: cnpj-nginx
