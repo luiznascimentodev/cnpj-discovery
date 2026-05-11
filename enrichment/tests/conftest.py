@@ -19,3 +19,12 @@ async def client():
         ) as ac:
             yield ac
 
+
+@pytest.fixture(autouse=True)
+def mock_dns_exists(monkeypatch):
+    """DNS lookups always return True in tests (no actual network calls)."""
+    async def _always_true(domain: str, *, timeout: float = 3.0) -> bool:
+        return True
+
+    monkeypatch.setattr("discovery.pipeline.dns_exists", _always_true)
+

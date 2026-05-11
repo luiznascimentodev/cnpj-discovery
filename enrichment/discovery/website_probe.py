@@ -4,6 +4,8 @@ Política do projeto (spec): UA identificável, timeouts curtos, sem evasão de
 anti-bot, sem cookies. Detecta páginas estacionadas/parked para descartá-las
 antes de consumir orçamento de crawl.
 """
+import asyncio
+import socket
 from dataclasses import dataclass
 from typing import Optional
 
@@ -87,6 +89,23 @@ async def probe_domain(
         parked=False,
         error=last_error or "no response",
     )
+
+
+async def dns_exists(domain: str, *, timeout: float = 3.0) -> bool:
+    """Returns True if domain has at least one A/AAAA DNS record.
+
+    Uses stdlib socket via thread executor — no extra dependencies.
+    ~5ms on cache hit, ~50ms on miss, vs ~500ms+ for HTTP probe.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        await asyncio.wait_for(
+            loop.run_in_executor(None, socket.getaddrinfo, domain, None),
+            timeout=timeout,
+        )
+        return True
+    except (OSError, asyncio.TimeoutError):
+        return False
 
 
 def make_default_client(*, user_agent: str = DEFAULT_USER_AGENT) -> httpx.AsyncClient:

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     google_cse_api_key: str = ""
     google_cse_cx: str = ""
     google_cse_base_url: str = "https://www.googleapis.com/customsearch/v1"
+    searxng_url: str = ""
 
     @property
     def google_cse_enabled(self) -> bool:

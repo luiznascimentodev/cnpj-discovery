@@ -1,0 +1,77 @@
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "cnpj-searxng"
+  privacypolicy_url: false
+  contact_url: false
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "pt-BR"
+  ban_time_on_fail: 5
+  max_ban_time_on_fail: 120
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "cnpj-discovery-searxng-secret"
+  base_url: false
+  image_proxy: false
+
+ui:
+  static_use_hash: true
+  default_locale: "pt"
+  query_in_title: false
+  infinite_scroll: false
+  default_theme: simple
+
+# Only JSON-friendly endpoints are needed for programmatic access
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 15.0
+  useragent_suffix: ""
+  pool_connections: 100
+  pool_maxsize: 20
+  enable_http2: true
+
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+    language: "pt-br"
+    region: "pt-BR"
+    disabled: false
+    weight: 2
+
+  - name: bing
+    engine: bing
+    shortcut: b
+    language: "pt-br"
+    disabled: false
+    weight: 1
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: d
+    language: "pt-br"
+    disabled: false
+    weight: 1
+
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+    weight: 1
+
+categories_as_tabs:
+  general:
+    title: General
+    weight: 1
+    engines:
+      - google
+      - bing
+      - duckduckgo
+      - brave

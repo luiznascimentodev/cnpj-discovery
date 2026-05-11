@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from discovery.website_probe import ProbeResult, probe_domain
+from discovery.website_probe import ProbeResult, dns_exists, probe_domain
 from domain_discovery import DomainCandidate, discover_domain_candidates
 from resolver.domain_verifier import DomainScoreResult, score_domain_evidence
 from rf_baseline import normalize_rf_email, normalize_rf_phone
@@ -277,6 +277,15 @@ async def process_target(
     if candidates:
         async with pool.acquire() as conn:
             for candidate in candidates:
+                # DNS pre-check: brand_slug domains are 98% non-existent — skip HTTP if DNS fails
+                if candidate.source == "brand_slug" and not await dns_exists(candidate.domain):
+                    await conn.execute(
+                        _SQL_UPSERT_DOMAIN,
+                        cnpj_basico, cnpj_ordem, cnpj_dv,
+                        candidate.domain, f"https://{candidate.domain}/",
+                        candidate.source, 5, "rejected",
+                    )
+                    continue
                 probe = await probe_domain(candidate.domain, client=client)
                 score = score_domain_evidence(
                     probe.body,

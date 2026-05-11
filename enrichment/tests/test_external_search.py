@@ -217,6 +217,78 @@ class TestEnrichCandidatesV2:
         assert candidates[0].domain == "resultado.com.br"
 
     @pytest.mark.asyncio
+    async def test_searxng_used_before_brave_when_configured(self):
+        """SearXNG tem prioridade sobre Brave quando configurado."""
+        call_log = []
+
+        def handler(request):
+            url = str(request.url)
+            call_log.append(url)
+            if "brasilapi" in url:
+                return _brasilapi_response(email=None)
+            if "searxng" in url:
+                return httpx.Response(200, json={
+                    "results": [{"url": "https://empresa-searxng.com.br/"}]
+                })
+            return httpx.Response(404)
+
+        client_obj = ExternalSearchClient(
+            brasilapi_enabled=True,
+            searxng_url="http://searxng:8080",
+            brave_api_key="brave-key",
+        )
+        async with _make_client(handler) as client:
+            candidates = await client_obj.enrich_candidates(
+                cnpj14="12345678000190",
+                legal_name="EMPRESA LTDA",
+                trade_name="Empresa",
+                city="SP",
+                partner_names=[],
+                client=client,
+            )
+
+        assert len(candidates) > 0
+        assert candidates[0].domain == "empresa-searxng.com.br"
+        assert candidates[0].source == "searxng"
+        brave_calls = [u for u in call_log if "search.brave.com" in u]
+        assert brave_calls == []  # Brave não deve ser chamado quando SearXNG retorna resultados
+
+    @pytest.mark.asyncio
+    async def test_searxng_falls_through_to_brave_when_empty(self):
+        """Quando SearXNG retorna vazio, Brave é tentado."""
+        call_log = []
+
+        def handler(request):
+            url = str(request.url)
+            call_log.append(url)
+            if "brasilapi" in url:
+                return _brasilapi_response(email=None)
+            if "searxng" in url:
+                return httpx.Response(200, json={"results": []})
+            if "search.brave.com" in url:
+                return _brave_response(["empresa-brave.com.br"])
+            return httpx.Response(404)
+
+        client_obj = ExternalSearchClient(
+            brasilapi_enabled=True,
+            searxng_url="http://searxng:8080",
+            brave_api_key="brave-key",
+        )
+        async with _make_client(handler) as client:
+            candidates = await client_obj.enrich_candidates(
+                cnpj14="12345678000190",
+                legal_name="EMPRESA LTDA",
+                trade_name="Empresa",
+                city="SP",
+                partner_names=[],
+                client=client,
+            )
+
+        assert any("search.brave.com" in u for u in call_log)
+        assert len(candidates) > 0
+        assert candidates[0].domain == "empresa-brave.com.br"
+
+    @pytest.mark.asyncio
     async def test_brasilapi_qsa_names_enriches_search_when_no_local_partners(self):
         """QSA da BrasilAPI enriquece queries quando não temos partner_names locais."""
         queries_sent = []

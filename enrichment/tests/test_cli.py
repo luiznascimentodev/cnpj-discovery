@@ -11,7 +11,12 @@ from cli import (
     build_parser,
     cmd_crawler,
     cmd_discovery,
+    cmd_domain_crawler,
+    cmd_enqueue_domain_jobs,
+    cmd_enqueue_playwright_jobs,
+    cmd_playwright_crawler,
     cmd_release_stale,
+    cmd_resolve_domain,
     cmd_seed,
     cmd_worker,
     default_worker_id,
@@ -22,8 +27,10 @@ from cli import (
     do_seed,
     main,
 )
+from crawler.domain_runner import DomainRunStats
 from crawler.runner import RunStats
 from discovery.pipeline import DiscoveryOutcome
+from resolver.domain_resolver import ResolveStats
 from scheduler import ClaimedTarget
 
 
@@ -103,6 +110,16 @@ class TestDoFunctions:
         done_calls = [c for c in complete.await_args_list if c.kwargs.get("status") == "done"]
         assert len(retry_calls) == 1
         assert len(done_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_do_discovery_returns_zeros_when_no_targets(self):
+        with patch("cli.claim_targets", new_callable=AsyncMock, return_value=[]):
+            async with _stub_client() as client:
+                claimed, created = await do_discovery(
+                    object(), client=client, worker_id="w", batch_size=10, lease_seconds=300
+                )
+        assert claimed == 0
+        assert created == 0
 
     @pytest.mark.asyncio
     async def test_do_crawler_proxies_run_batch(self):
@@ -217,6 +234,7 @@ class TestCommandWrappers:
             patch("cli.create_pool", AsyncMock(return_value=object())),
             patch("cli.close_pool", new_callable=AsyncMock),
             patch("cli.do_release_stale", AsyncMock(return_value=4)),
+            patch("cli.release_stale_domain_jobs", AsyncMock(return_value=2)),
         ):
             await cmd_release_stale(args)
 
@@ -244,6 +262,128 @@ class TestCommandWrappers:
             await cmd_worker(args)
 
         assert loop.await_count == 2
+
+
+class TestNewDomainCommands:
+    @pytest.mark.asyncio
+    async def test_cmd_enqueue_domain_jobs(self):
+        args = SimpleNamespace(priority=70, batch_size=100, cursor_id=0)
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.enqueue_jobs_from_verified_domains", AsyncMock(return_value=(5, 40))),
+        ):
+            await cmd_enqueue_domain_jobs(args)
+
+    @pytest.mark.asyncio
+    async def test_cmd_domain_crawler_tick(self):
+        args = SimpleNamespace(
+            user_agent="UA", worker_id="w", batch_size=10, lease_seconds=600,
+            interval=0, max_iters=2,
+        )
+        stats = DomainRunStats(
+            jobs_claimed=3, pages_fetched=3, contacts_extracted=5,
+            jobs_done=3, jobs_retried=0, jobs_blocked=0, jobs_errored=0,
+            budget_skipped=0,
+        )
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.run_domain_batch", AsyncMock(return_value=stats)),
+            patch("cli.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await cmd_domain_crawler(args)
+
+    @pytest.mark.asyncio
+    async def test_cmd_resolve_domain_tick(self):
+        args = SimpleNamespace(batch_size=500, cursor_id=0, interval=0, max_iters=2)
+        stats = ResolveStats(
+            domains_processed=2, contacts_published=10,
+            contacts_suppressed=1, contacts_below_threshold=3,
+        )
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.resolve_domain_contacts", AsyncMock(return_value=stats)),
+            patch("cli.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await cmd_resolve_domain(args)
+
+    def test_parser_enqueue_domain_jobs(self):
+        args = build_parser().parse_args(["enqueue-domain-jobs", "--batch-size", "500"])
+        assert args.command == "enqueue-domain-jobs"
+        assert args.batch_size == 500
+
+    def test_parser_domain_crawler_tick(self):
+        args = build_parser().parse_args(["domain-crawler-tick", "--batch-size", "10"])
+        assert args.command == "domain-crawler-tick"
+        assert args.batch_size == 10
+        assert args.interval == DEFAULT_INTERVAL_SECONDS
+        assert args.max_iters == 0
+
+    def test_parser_resolve_domain_tick(self):
+        args = build_parser().parse_args(["resolve-domain-tick", "--cursor-id", "100"])
+        assert args.command == "resolve-domain-tick"
+        assert args.cursor_id == 100
+        assert args.interval == DEFAULT_INTERVAL_SECONDS
+        assert args.max_iters == 0
+
+
+class TestPlaywrightCommands:
+    @pytest.mark.asyncio
+    async def test_cmd_enqueue_playwright_jobs(self):
+        args = SimpleNamespace(batch_size=100)
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch(
+                "cli.enqueue_playwright_jobs_for_zero_contact_domains",
+                AsyncMock(return_value=(3, 9)),
+            ),
+        ):
+            await cmd_enqueue_playwright_jobs(args)
+
+    @pytest.mark.asyncio
+    async def test_cmd_playwright_crawler_tick(self):
+        import sys
+        from unittest.mock import MagicMock
+        from crawler.playwright_runner import PlaywrightRunStats
+
+        args = SimpleNamespace(
+            worker_id="w", batch_size=5, lease_seconds=600, user_agent="UA"
+        )
+        stats = PlaywrightRunStats(jobs_claimed=2, jobs_done=2)
+
+        mock_browser = AsyncMock()
+        mock_pw = AsyncMock()
+        mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+        mock_playwright_ctx = AsyncMock()
+        mock_playwright_ctx.__aenter__ = AsyncMock(return_value=mock_pw)
+        mock_playwright_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        mock_api_module = MagicMock()
+        mock_api_module.async_playwright = MagicMock(return_value=mock_playwright_ctx)
+
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.run_playwright_batch", AsyncMock(return_value=stats)),
+            patch.dict(
+                sys.modules,
+                {"playwright": MagicMock(), "playwright.async_api": mock_api_module},
+            ),
+        ):
+            await cmd_playwright_crawler(args)
+
+    def test_parser_enqueue_playwright_jobs(self):
+        args = build_parser().parse_args(["enqueue-playwright-jobs", "--batch-size", "50"])
+        assert args.command == "enqueue-playwright-jobs"
+        assert args.batch_size == 50
+
+    def test_parser_playwright_crawler_tick(self):
+        args = build_parser().parse_args(["playwright-crawler-tick", "--batch-size", "3"])
+        assert args.command == "playwright-crawler-tick"
+        assert args.batch_size == 3
 
 
 class TestMainEntrypoint:

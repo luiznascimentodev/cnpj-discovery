@@ -699,6 +699,54 @@ class TestProcessTarget:
         assert len(socios_calls) == 1
         assert socios_calls[0][1][0] == "12345678"
 
+    @pytest.mark.asyncio
+    async def test_brand_slug_dns_miss_saves_rejected_without_http_probe(self, monkeypatch):
+        """brand_slug candidate with no DNS → upserted as rejected, no HTTP probe made."""
+        async def _dns_never_exists(domain: str, *, timeout: float = 3.0) -> bool:
+            return False
+
+        monkeypatch.setattr("discovery.pipeline.dns_exists", _dns_never_exists)
+
+        probed = []
+
+        def _tracking_handler(request: httpx.Request) -> httpx.Response:
+            probed.append(str(request.url))
+            return httpx.Response(200, content=b"<html>OK</html>")
+
+        conn = FakeConnection(
+            fetchrow_result={
+                "razao_social": "ACME LTDA",
+                "nome_fantasia": "Acme",
+                "email": None,
+                "uf": "SP",
+                "municipio": 1,
+                "municipio_descricao": "SAO PAULO",
+                "cep": "00000000",
+                "ddd1": None,
+                "telefone1": None,
+                "ddd2": None,
+                "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
+            }
+        )
+
+        async with _httpx_client(_tracking_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+            )
+
+        assert probed == []
+        assert outcome.crawl_requests_created == 0
+        rejected_calls = [c for c in conn.execute_calls if "rejected" in str(c[1])]
+        assert len(rejected_calls) >= 1
+
 
 class TestPipelineAddressFields:
     def test_sql_contains_new_address_and_cnae_fields(self):

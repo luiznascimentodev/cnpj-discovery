@@ -55,6 +55,14 @@ class TestSettings:
         settings = Settings(google_cse_api_key="key", google_cse_cx="cx")
         assert settings.google_cse_enabled is True
 
+    def test_searxng_url_default_is_empty(self):
+        settings = Settings()
+        assert settings.searxng_url == ""
+
+    def test_searxng_url_accepts_custom_value(self):
+        settings = Settings(searxng_url="http://searxng:8080")
+        assert settings.searxng_url == "http://searxng:8080"
+
 
 class TestDatabase:
     @pytest.mark.asyncio

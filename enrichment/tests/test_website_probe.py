@@ -1,9 +1,12 @@
 import httpx
 import pytest
 
+from unittest.mock import patch
+
 from discovery.website_probe import (
     DEFAULT_USER_AGENT,
     ProbeResult,
+    dns_exists,
     is_parked,
     make_default_client,
     probe_domain,
@@ -95,6 +98,35 @@ class TestProbeDomain:
             result = await probe_domain("acme.com.br", client=client, max_bytes=10)
 
         assert len(result.body) == 10
+
+
+class TestDnsExists:
+    @pytest.mark.asyncio
+    async def test_returns_true_when_domain_resolves(self):
+        with patch("discovery.website_probe.socket.getaddrinfo", return_value=[("127.0.0.1",)]):
+            result = await dns_exists("acme.com.br")
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_domain_not_found(self):
+        def raise_oserror(*args):
+            raise OSError("Name not found")
+
+        with patch("discovery.website_probe.socket.getaddrinfo", side_effect=raise_oserror):
+            result = await dns_exists("nxdomain-deadbeef.com.br")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_timeout(self):
+        import asyncio
+
+        async def slow_lookup(*args):
+            await asyncio.sleep(10)
+
+        with patch("asyncio.get_running_loop") as mock_loop:
+            mock_loop.return_value.run_in_executor = lambda _, fn, *a: slow_lookup(*a)
+            result = await dns_exists("slow.com.br", timeout=0.001)
+        assert result is False
 
 
 class TestMakeDefaultClient:
