@@ -12,6 +12,8 @@ from discovery.pipeline import (
     _SQL_FETCH_SOCIOS,
     _SQL_IS_MEI,
     _SQL_UPSERT_RF_EMAIL_CONTACT,
+    _SQL_UPSERT_RF_EMAIL_CONTACT_MEI,
+    _SQL_UPSERT_RF_PHONE_CONTACT,
     _initial_confidence,
     _initial_status,
     _rf_email_domain,
@@ -1088,3 +1090,332 @@ class TestMeiDetection:
                 )
 
         mock_discover.assert_called_once()
+
+
+_MEI_ROW_WITH_PHONE = {
+    **_MEI_ROW,
+    "ddd1": "11",
+    "telefone1": "987654321",
+    "ddd2": "11",
+    "telefone2": "912345678",
+}
+
+_MEI_ROW_WITH_EMAIL = {
+    **_MEI_ROW,
+    "email": "joao@gmail.com",
+}
+
+_MEI_ROW_WITH_CORP_EMAIL = {
+    **_MEI_ROW,
+    "email": "contato@joaoartesanato.com.br",
+}
+
+
+class TestMeiRfPhoneContact:
+    """MEI companies save RF phone/email contacts via dedicated SQL."""
+
+    def test_sql_constants_exist(self):
+        assert "rf_email_mei" in _SQL_UPSERT_RF_EMAIL_CONTACT_MEI
+        assert "Email MEI" in _SQL_UPSERT_RF_EMAIL_CONTACT_MEI
+        assert "$8" in _SQL_UPSERT_RF_PHONE_CONTACT
+        assert "enriched_contacts" in _SQL_UPSERT_RF_PHONE_CONTACT
+
+    @pytest.mark.asyncio
+    async def test_mei_saves_phone1_as_rf_contact(self):
+        """MEI with ddd1/telefone1 saves one phone contact with confidence 75."""
+        conn = FakeConnectionMei(
+            estabelecimento_row=_MEI_ROW_WITH_PHONE,
+            mei_row={"opcao_mei": "S"},
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+            )
+
+        phone_calls = [c for c in conn.execute_calls if "enriched_contacts" in c[0] and "'phone'" in c[0]]
+        assert len(phone_calls) >= 1
+        # First phone call: args are (cnpj_basico, cnpj_ordem, cnpj_dv, value, normalized, label, source, confidence)
+        first_phone_args = phone_calls[0][1]
+        assert first_phone_args[6] == "rf_phone_mei"
+        assert first_phone_args[7] == 75
+        assert outcome.rf_contacts_saved >= 1
+
+    @pytest.mark.asyncio
+    async def test_mei_saves_both_phones_when_different(self):
+        """MEI with two distinct phones saves both contacts."""
+        conn = FakeConnectionMei(
+            estabelecimento_row=_MEI_ROW_WITH_PHONE,
+            mei_row={"opcao_mei": "S"},
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+            )
+
+        phone_calls = [c for c in conn.execute_calls if "enriched_contacts" in c[0] and "'phone'" in c[0]]
+        assert len(phone_calls) == 2
+        # Second phone uses confidence 70
+        second_phone_args = phone_calls[1][1]
+        assert second_phone_args[7] == 70
+        assert outcome.rf_contacts_saved == 2
+
+    @pytest.mark.asyncio
+    async def test_mei_skips_duplicate_phone2(self):
+        """MEI with identical phone1 and phone2 (same normalized_value) saves only one."""
+        row = {
+            **_MEI_ROW,
+            "ddd1": "11",
+            "telefone1": "987654321",
+            "ddd2": "11",
+            "telefone2": "987654321",  # same number
+        }
+        conn = FakeConnectionMei(
+            estabelecimento_row=row,
+            mei_row={"opcao_mei": "S"},
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+            )
+
+        phone_calls = [c for c in conn.execute_calls if "enriched_contacts" in c[0] and "'phone'" in c[0]]
+        assert len(phone_calls) == 1
+        assert outcome.rf_contacts_saved == 1
+
+    @pytest.mark.asyncio
+    async def test_mei_saves_public_provider_email(self):
+        """MEI with gmail email saves it via _SQL_UPSERT_RF_EMAIL_CONTACT_MEI (confidence 65)."""
+        conn = FakeConnectionMei(
+            estabelecimento_row=_MEI_ROW_WITH_EMAIL,
+            mei_row={"opcao_mei": "S"},
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+            )
+
+        email_calls = [c for c in conn.execute_calls if "enriched_contacts" in c[0] and "'email'" in c[0]]
+        assert len(email_calls) == 1
+        assert "rf_email_mei" in email_calls[0][0]
+        assert outcome.rf_contacts_saved == 1
+
+    @pytest.mark.asyncio
+    async def test_mei_saves_corporate_email(self):
+        """MEI with corporate email also saves via MEI SQL (not the non-MEI path)."""
+        conn = FakeConnectionMei(
+            estabelecimento_row=_MEI_ROW_WITH_CORP_EMAIL,
+            mei_row={"opcao_mei": "S"},
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+            )
+
+        email_calls = [c for c in conn.execute_calls if "enriched_contacts" in c[0] and "'email'" in c[0]]
+        assert len(email_calls) == 1
+        assert "rf_email_mei" in email_calls[0][0]
+        assert outcome.rf_contacts_saved == 1
+
+    @pytest.mark.asyncio
+    async def test_non_mei_public_provider_email_uses_original_sql(self):
+        """Non-MEI public_provider email uses _SQL_UPSERT_RF_EMAIL_CONTACT (confidence 40)."""
+        conn = FakeConnectionMei(
+            estabelecimento_row={**_MEI_ROW, "email": "owner@gmail.com"},
+            mei_row={"opcao_mei": "N"},
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+            )
+
+        email_calls = [c for c in conn.execute_calls if "enriched_contacts" in c[0]]
+        assert len(email_calls) == 1
+        assert "rf_email_direct" in email_calls[0][0]
+        assert outcome.rf_contacts_saved == 1
+
+    @pytest.mark.asyncio
+    async def test_mei_no_phone_no_email_saves_nothing(self):
+        """MEI with no phone and no email saves no contacts."""
+        conn = FakeConnectionMei(
+            estabelecimento_row=_MEI_ROW,  # email=None, ddd1=None
+            mei_row={"opcao_mei": "S"},
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+            )
+
+        contact_calls = [c for c in conn.execute_calls if "enriched_contacts" in c[0]]
+        assert contact_calls == []
+        assert outcome.rf_contacts_saved == 0
+
+
+class TestDnsOnlyMode:
+    @pytest.mark.asyncio
+    async def test_dns_only_skips_external_search(self):
+        """dns_only=True: external_search.enrich_candidates must never be called."""
+        called = []
+
+        class FakeExternalSearch:
+            async def enrich_candidates(self, **kwargs):
+                called.append(kwargs)
+                return []
+
+        conn = FakeConnectionMei(
+            estabelecimento_row=_MEI_ROW,
+            mei_row={"opcao_mei": "S"},
+            fetchval_result=None,
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+                external_search=FakeExternalSearch(),
+                dns_only=True,
+            )
+
+        assert called == []
+
+    @pytest.mark.asyncio
+    async def test_dns_only_mei_returns_early_with_rf_contacts(self):
+        """dns_only=True with MEI: returns early after saving RF contacts."""
+        conn = FakeConnectionMei(
+            estabelecimento_row=_MEI_ROW_WITH_PHONE,
+            mei_row={"opcao_mei": "S"},
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+                dns_only=True,
+            )
+
+        assert outcome.domains_seen == 0
+        assert outcome.crawl_requests_created == 0
+        assert outcome.rf_contacts_saved >= 1
+
+    @pytest.mark.asyncio
+    async def test_dns_only_false_calls_external_search_for_mei(self):
+        """dns_only=False (default): external_search IS called for MEI when no verified domain."""
+        called = []
+
+        class FakeExternalSearch:
+            async def enrich_candidates(self, **kwargs):
+                called.append(True)
+                return []
+
+        conn = FakeConnectionMei(
+            estabelecimento_row=_MEI_ROW,
+            mei_row={"opcao_mei": "S"},
+            fetchval_result=None,
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+                external_search=FakeExternalSearch(),
+                dns_only=False,
+            )
+
+        assert called == [True]
+
+    @pytest.mark.asyncio
+    async def test_dns_only_non_mei_still_runs_brand_slug(self):
+        """dns_only=True for non-MEI does NOT short-circuit brand_slug discovery."""
+        from unittest.mock import patch
+
+        conn = FakeConnectionMei(
+            estabelecimento_row={**_MEI_ROW, "email": "contato@acme.com.br"},
+            mei_row={"opcao_mei": "N"},
+        )
+
+        with patch("discovery.pipeline.discover_domain_candidates") as mock_discover:
+            mock_discover.return_value = []
+            async with _httpx_client(_weak_ok_handler) as client:
+                await process_target(
+                    FakePool(conn),
+                    cnpj_basico="12345678",
+                    cnpj_ordem="0001",
+                    cnpj_dv="90",
+                    client=client,
+                    dns_only=True,
+                )
+
+        # Non-MEI with dns_only still runs brand_slug discovery (dns_only only skips external_search)
+        mock_discover.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_dns_only_non_mei_skips_external_search(self):
+        """dns_only=True for non-MEI: external_search is skipped."""
+        called = []
+
+        class FakeExternalSearch:
+            async def enrich_candidates(self, **kwargs):
+                called.append(True)
+                return []
+
+        conn = FakeConnectionMei(
+            estabelecimento_row={**_MEI_ROW, "email": "contato@acme.com.br"},
+            mei_row={"opcao_mei": "N"},
+            fetchval_result=None,
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+                external_search=FakeExternalSearch(),
+                dns_only=True,
+            )
+
+        assert called == []

@@ -81,6 +81,26 @@ _SQL_UPSERT_RF_EMAIL_CONTACT = """
     DO UPDATE SET last_seen = now()
 """
 
+_SQL_UPSERT_RF_EMAIL_CONTACT_MEI = """
+    INSERT INTO paid_enrichment.enriched_contacts (
+        cnpj_basico, cnpj_ordem, cnpj_dv, contact_type, value, normalized_value,
+        label, source, confidence, status, first_seen, last_seen
+    )
+    VALUES ($1, $2, $3, 'email', $4, $4, 'Email MEI', 'rf_email_mei', 65, 'active', now(), now())
+    ON CONFLICT (cnpj_basico, cnpj_ordem, cnpj_dv, contact_type, normalized_value)
+    DO UPDATE SET last_seen = now()
+"""
+
+_SQL_UPSERT_RF_PHONE_CONTACT = """
+    INSERT INTO paid_enrichment.enriched_contacts (
+        cnpj_basico, cnpj_ordem, cnpj_dv, contact_type, value, normalized_value,
+        label, source, confidence, status, first_seen, last_seen
+    )
+    VALUES ($1, $2, $3, 'phone', $4, $5, $6, $7, $8, 'active', now(), now())
+    ON CONFLICT (cnpj_basico, cnpj_ordem, cnpj_dv, contact_type, normalized_value)
+    DO UPDATE SET last_seen = now()
+"""
+
 _SQL_HAS_VERIFIED_DOMAIN = """
     SELECT 1 FROM paid_enrichment.company_domains
     WHERE cnpj_basico = $1 AND cnpj_ordem = $2 AND cnpj_dv = $3 AND status = 'verified'
@@ -206,6 +226,7 @@ async def process_target(
     cnpj_dv: str,
     client: httpx.AsyncClient,
     external_search: ExternalSearchClient | None = None,
+    dns_only: bool = False,
 ) -> DiscoveryOutcome:
     cnpj = f"{cnpj_basico}{cnpj_ordem}{cnpj_dv}"
 
@@ -226,8 +247,13 @@ async def process_target(
     rf_phone2 = normalize_rf_phone(_row_value(row, "ddd2"), _row_value(row, "telefone2"))
     rf_phone = rf_phone1 or rf_phone2
 
+    # MEI companies (simples.opcao_mei='S') skip brand_slug — social search only
+    async with pool.acquire() as conn:
+        simples_row = await conn.fetchrow(_SQL_IS_MEI, cnpj_basico)
+    is_mei = bool(simples_row and simples_row.get("opcao_mei") == "S")
+
     rf_contacts_saved = 0
-    if rf_email and rf_email.classification == "public_provider":
+    if not is_mei and rf_email and rf_email.classification == "public_provider":
         async with pool.acquire() as conn:
             await conn.execute(
                 _SQL_UPSERT_RF_EMAIL_CONTACT,
@@ -253,15 +279,41 @@ async def process_target(
                 rf_contacts_saved=rf_contacts_saved,
             )
 
-    # MEI companies (simples.opcao_mei='S') skip brand_slug — social search only
-    async with pool.acquire() as conn:
-        simples_row = await conn.fetchrow(_SQL_IS_MEI, cnpj_basico)
-    is_mei = bool(simples_row and simples_row.get("opcao_mei") == "S")
-
     requests_created = 0
     candidates: list[DomainCandidate] = []
 
-    if not is_mei:
+    if is_mei:
+        async with pool.acquire() as conn:
+            if rf_email and rf_email.classification in ("public_provider", "corporate_domain"):
+                await conn.execute(
+                    _SQL_UPSERT_RF_EMAIL_CONTACT_MEI,
+                    cnpj_basico, cnpj_ordem, cnpj_dv,
+                    rf_email.normalized_value,
+                )
+                rf_contacts_saved += 1
+            if rf_phone1:
+                await conn.execute(
+                    _SQL_UPSERT_RF_PHONE_CONTACT,
+                    cnpj_basico, cnpj_ordem, cnpj_dv,
+                    rf_phone1.value, rf_phone1.normalized_value,
+                    "Telefone MEI", "rf_phone_mei", 75,
+                )
+                rf_contacts_saved += 1
+            if rf_phone2 and rf_phone2.normalized_value != (rf_phone1.normalized_value if rf_phone1 else None):
+                await conn.execute(
+                    _SQL_UPSERT_RF_PHONE_CONTACT,
+                    cnpj_basico, cnpj_ordem, cnpj_dv,
+                    rf_phone2.value, rf_phone2.normalized_value,
+                    "Telefone MEI 2", "rf_phone_mei", 70,
+                )
+                rf_contacts_saved += 1
+        if dns_only:
+            return DiscoveryOutcome(
+                cnpj=cnpj, domains_seen=0, crawl_requests_created=0,
+                rf_contacts_saved=rf_contacts_saved,
+            )
+        candidates = []
+    else:
         candidates = discover_domain_candidates(
             legal_name=_row_value(row, "razao_social"),
             trade_name=_row_value(row, "nome_fantasia"),
@@ -334,7 +386,7 @@ async def process_target(
                         )
                         requests_created += 1
 
-    if external_search is not None:
+    if external_search is not None and not dns_only:
         async with pool.acquire() as conn:
             already_verified = await conn.fetchval(
                 _SQL_HAS_VERIFIED_DOMAIN, cnpj_basico, cnpj_ordem, cnpj_dv
