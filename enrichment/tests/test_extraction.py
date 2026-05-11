@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from extraction import (
+    _context_boost,
     _social_profile_path,
     extract_contacts_from_html,
     extract_main_content,
@@ -187,3 +188,47 @@ class TestMainContentConfidenceBoost:
         html = "<html><body><p>Tel: (11) 3333-4444</p></body></html>"
         contacts = extract_contacts_from_html(html, source_url="https://test.com")
         assert len(contacts) > 0
+
+
+class TestContextAwareConfidence:
+    def test_phone_adjacent_to_whatsapp_label_gets_boost(self):
+        html = """<html><body><p>WhatsApp: (11) 98765-4321</p></body></html>"""
+        contacts = extract_contacts_from_html(html, source_url="https://test.com")
+        phones = [c for c in contacts if c.contact_type == "phone"]
+        assert phones, "should find at least one phone"
+        # With context boost (+10) on top of base visible_text confidence (70): expect >= 80
+        assert phones[0].confidence >= 80
+
+    def test_phone_adjacent_to_telefone_label_gets_boost(self):
+        html = """<html><body><p>Telefone: (21) 3333-4444</p></body></html>"""
+        contacts = extract_contacts_from_html(html, source_url="https://test.com")
+        phones = [c for c in contacts if c.contact_type == "phone"]
+        assert phones
+        assert phones[0].confidence >= 80
+
+    def test_phone_adjacent_to_celular_label_gets_boost(self):
+        html = """<html><body><span>Celular: 11 97654-3210</span></body></html>"""
+        contacts = extract_contacts_from_html(html, source_url="https://test.com")
+        phones = [c for c in contacts if c.contact_type == "phone"]
+        assert phones
+        assert phones[0].confidence >= 80
+
+    def test_email_adjacent_to_contato_label_gets_boost(self):
+        html = """<html><body><p>Contato: vendas@empresa.com.br</p></body></html>"""
+        contacts = extract_contacts_from_html(html, source_url="https://test.com")
+        emails = [c for c in contacts if c.contact_type == "email"]
+        assert emails
+        assert emails[0].confidence >= 88
+
+    def test_confidence_capped_at_100(self):
+        html = """<html><body><a href="tel:+5511987654321">WhatsApp: 11 98765-4321</a></body></html>"""
+        contacts = extract_contacts_from_html(html, source_url="https://test.com")
+        phones = [c for c in contacts if c.contact_type == "phone"]
+        if phones:
+            assert all(c.confidence <= 100 for c in phones)
+
+    def test_context_boost_returns_zero_for_none_context(self):
+        assert _context_boost(None, "phone") == 0
+
+    def test_context_boost_returns_zero_for_unknown_contact_type(self):
+        assert _context_boost("whatsapp telefone contato", "social") == 0

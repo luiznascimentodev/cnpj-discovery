@@ -17,6 +17,29 @@ _PHONE_RE = re.compile(
 )
 _NON_DIGIT_RE = re.compile(r"\D+")
 _SKIP_EMAIL_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".css", ".js")
+_PHONE_CONTEXT_LABELS_RE = re.compile(
+    r"(?:whatsapp|wh?ats?|zap|celular?|cel\b|fone|telefone?|tel\b|fax|"
+    r"contato|fale|atendimento|suporte|sac|vendas|comercial|ligue|ligue-nos)",
+    re.IGNORECASE,
+)
+_EMAIL_CONTEXT_LABELS_RE = re.compile(
+    r"(?:e-?mail|contato|fale|atendimento|suporte|comercial|vendas|envie|escreva)",
+    re.IGNORECASE,
+)
+_CONTEXT_WINDOW = 60
+
+
+def _context_boost(context: str | None, contact_type: str) -> int:
+    """Returns +10 boost if context contains label adjacent to contact."""
+    if not context:
+        return 0
+    if contact_type in {"phone", "whatsapp"}:
+        return 10 if _PHONE_CONTEXT_LABELS_RE.search(context) else 0
+    if contact_type == "email":
+        return 10 if _EMAIL_CONTEXT_LABELS_RE.search(context) else 0
+    return 0
+
+
 _SOCIAL_HOSTS = {
     "facebook.com",
     "instagram.com",
@@ -154,6 +177,14 @@ def _email_contacts(text: str, *, source_url: str, source_domain: str | None, ex
     for match in _EMAIL_RE.finditer(text):
         normalized = normalize_email(match.group(1))
         if normalized:
+            base_confidence = 78 if extractor == "visible_text" else 88
+            if extractor == "visible_text":
+                ctx_start = max(0, match.start() - _CONTEXT_WINDOW)
+                ctx_end = min(len(text), match.end() + _CONTEXT_WINDOW)
+                ctx = text[ctx_start:ctx_end]
+                boost = _context_boost(ctx, "email")
+            else:
+                boost = 0
             contacts.append(
                 ExtractedContact(
                     contact_type="email",
@@ -161,7 +192,7 @@ def _email_contacts(text: str, *, source_url: str, source_domain: str | None, ex
                     normalized_value=normalized,
                     label=None,
                     context=match.group(0),
-                    confidence=78 if extractor == "visible_text" else 88,
+                    confidence=min(base_confidence + boost, 100),
                     source_url=source_url,
                     source_domain=source_domain,
                     extractor=extractor,
@@ -347,6 +378,12 @@ def extract_contacts_from_html(html: str, *, source_url: str) -> list[ExtractedC
             extractor="visible_text",
         )
         if contact:
+            ctx_start = max(0, match.start() - _CONTEXT_WINDOW)
+            ctx_end = min(len(visible_text), match.end() + _CONTEXT_WINDOW)
+            ctx = visible_text[ctx_start:ctx_end]
+            boost = _context_boost(ctx, "phone")
+            if boost:
+                contact = _replace(contact, confidence=min(contact.confidence + boost, 100))
             contacts.append(contact)
 
     contacts = _dedupe(contacts)
