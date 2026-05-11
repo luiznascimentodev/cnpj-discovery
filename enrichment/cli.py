@@ -223,14 +223,18 @@ async def do_one_loop(pool, client, args) -> TickStats:
             external_search=_build_external_search(),
         )
 
-    crawler_done, contacts = await do_crawler(
-        pool,
-        client=client,
-        worker_id=args.worker_id,
-        batch_size=args.crawl_batch_size,
-        lease_seconds=args.lease_seconds,
-        user_agent=args.user_agent,
-    )
+    # Phase 1 (DNS-only sweep) skips HTTP crawling — pure throughput mode.
+    if phase != 1 and args.crawl_batch_size > 0:
+        crawler_done, contacts = await do_crawler(
+            pool,
+            client=client,
+            worker_id=args.worker_id,
+            batch_size=args.crawl_batch_size,
+            lease_seconds=args.lease_seconds,
+            user_agent=args.user_agent,
+        )
+    else:
+        crawler_done, contacts = 0, 0
     released = await do_release_stale(pool, lease_seconds=args.lease_seconds)
     return TickStats(
         seeded=seeded,
