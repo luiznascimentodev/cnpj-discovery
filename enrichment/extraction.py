@@ -1,9 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _replace
 from html.parser import HTMLParser
 import re
 from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
 from domain_discovery import normalize_domain
+
+try:
+    import trafilatura as _trafilatura
+    _TRAFILATURA_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _TRAFILATURA_AVAILABLE = False
 
 _EMAIL_RE = re.compile(r"(?<![\w.+-])([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+)")
 _PHONE_RE = re.compile(
@@ -20,6 +26,34 @@ _SOCIAL_HOSTS = {
     "x.com",
     "youtube.com",
 }
+_FACEBOOK_BLOCKED_SEGMENTS = {
+    "events",
+    "groups",
+    "marketplace",
+    "photo",
+    "photos",
+    "posts",
+    "reel",
+    "reels",
+    "share",
+    "stories",
+    "video",
+    "videos",
+    "watch",
+}
+_INSTAGRAM_BLOCKED_SEGMENTS = {
+    "about",
+    "accounts",
+    "explore",
+    "p",
+    "reel",
+    "reels",
+    "stories",
+    "tv",
+}
+_LINKEDIN_ALLOWED_PREFIXES = {"company", "school", "showcase"}
+_TWITTER_BLOCKED_SEGMENTS = {"home", "i", "intent", "search", "share"}
+_YOUTUBE_ALLOWED_PREFIXES = {"@", "c", "channel", "user"}
 
 
 @dataclass(frozen=True)
@@ -78,6 +112,12 @@ def normalize_email(value: str) -> str | None:
     if normalized.endswith(_SKIP_EMAIL_SUFFIXES):
         return None
     if not _EMAIL_RE.fullmatch(normalized):
+        return None
+    domain = normalized.rsplit("@", 1)[1]
+    labels = domain.split(".")
+    if any(not label or label.startswith("-") or label.endswith("-") for label in labels):
+        return None
+    if not re.fullmatch(r"[a-z]{2,24}", labels[-1]):
         return None
     return normalized
 
@@ -163,7 +203,11 @@ def _social_contact(href: str, *, source_url: str, source_domain: str | None, la
     if host not in _SOCIAL_HOSTS:
         return None
 
-    normalized = parsed._replace(fragment="", query="").geturl().rstrip("/")
+    path = _social_profile_path(host, parsed.path)
+    if not path:
+        return None
+
+    normalized = parsed._replace(fragment="", query="", path=path).geturl().rstrip("/")
     return ExtractedContact(
         contact_type="social",
         value=href,
@@ -175,6 +219,63 @@ def _social_contact(href: str, *, source_url: str, source_domain: str | None, la
         source_domain=source_domain,
         extractor="social_link",
     )
+
+
+def _social_profile_path(host: str, path: str) -> str | None:
+    segments = [segment for segment in path.split("/") if segment]
+    if not segments:
+        return None
+
+    first = segments[0].lower()
+    if host == "instagram.com":
+        if len(segments) != 1 or first in _INSTAGRAM_BLOCKED_SEGMENTS:
+            return None
+        return f"/{segments[0]}"
+
+    if host == "facebook.com":
+        if len(segments) != 1 or first in _FACEBOOK_BLOCKED_SEGMENTS:
+            return None
+        return f"/{segments[0]}"
+
+    if host == "linkedin.com":
+        if len(segments) < 2 or first not in _LINKEDIN_ALLOWED_PREFIXES:
+            return None
+        return f"/{segments[0]}/{segments[1]}"
+
+    if host in {"twitter.com", "x.com"}:
+        if len(segments) != 1 or first in _TWITTER_BLOCKED_SEGMENTS:
+            return None
+        return f"/{segments[0]}"
+
+    if host == "tiktok.com":
+        if len(segments) != 1 or not segments[0].startswith("@"):
+            return None
+        return f"/{segments[0]}"
+
+    if host == "youtube.com":
+        if first.startswith("@"):
+            return f"/{segments[0]}"
+        if len(segments) >= 2 and first in _YOUTUBE_ALLOWED_PREFIXES:
+            return f"/{segments[0]}/{segments[1]}"
+        return None
+
+    return None
+
+
+def extract_main_content(html: str | None) -> str | None:
+    """Extrai conteúdo principal do HTML removendo nav/footer/ads via trafilatura."""
+    if not html or not _TRAFILATURA_AVAILABLE:
+        return None
+    try:
+        return _trafilatura.extract(
+            html,
+            include_comments=False,
+            include_tables=True,
+            no_fallback=False,
+            favor_precision=False,
+        )
+    except Exception:
+        return None
 
 
 def extract_contacts_from_html(html: str, *, source_url: str) -> list[ExtractedContact]:
@@ -248,4 +349,29 @@ def extract_contacts_from_html(html: str, *, source_url: str) -> list[ExtractedC
         if contact:
             contacts.append(contact)
 
-    return _dedupe(contacts)
+    contacts = _dedupe(contacts)
+
+    # Boost +8 for contacts present in main content (trafilatura-extracted)
+    main_content = extract_main_content(html)
+    if main_content:
+        main_parser = _ContactHtmlParser(source_url)
+        main_parser.feed(main_content)
+        main_text = " ".join(main_parser.text_parts)
+        main_values: set[tuple[str, str]] = set()
+        for match in _EMAIL_RE.finditer(main_text):
+            normalized = normalize_email(match.group(1))
+            if normalized:
+                main_values.add(("email", normalized))
+        for match in _PHONE_RE.finditer(main_text):
+            normalized = normalize_phone(match.group(0))
+            if normalized:
+                main_values.add(("phone", normalized))
+        if main_values:
+            contacts = [
+                _replace(c, confidence=min(c.confidence + 8, 100))
+                if (c.contact_type, c.normalized_value) in main_values
+                else c
+                for c in contacts
+            ]
+
+    return contacts
