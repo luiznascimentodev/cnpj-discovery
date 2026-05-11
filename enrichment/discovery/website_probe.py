@@ -91,7 +91,7 @@ async def probe_domain(
     )
 
 
-async def dns_exists(domain: str, *, timeout: float = 3.0) -> bool:
+async def dns_exists(domain: str, *, timeout: float = 0.5) -> bool:
     """Returns True if domain has at least one A/AAAA DNS record.
 
     Uses stdlib socket via thread executor — no extra dependencies.

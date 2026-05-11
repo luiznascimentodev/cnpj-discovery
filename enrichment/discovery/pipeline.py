@@ -7,6 +7,7 @@ mesmo target não duplica linhas.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -327,16 +328,30 @@ async def process_target(
             )
 
     if candidates:
+        # DNS pre-check all brand_slug candidates in parallel before acquiring DB conn.
+        # 98% are non-existent; checking them concurrently (not sequentially) saves N×timeout.
+        brand_slugs = [c for c in candidates if c.source == "brand_slug"]
+        if brand_slugs:
+            dns_results = await asyncio.gather(
+                *[dns_exists(c.domain) for c in brand_slugs]
+            )
+            dns_dead = [c for c, alive in zip(brand_slugs, dns_results) if not alive]
+            dns_live_domains = {c.domain for c, alive in zip(brand_slugs, dns_results) if alive}
+        else:
+            dns_dead = []
+            dns_live_domains = set()
+
         async with pool.acquire() as conn:
+            for candidate in dns_dead:
+                await conn.execute(
+                    _SQL_UPSERT_DOMAIN,
+                    cnpj_basico, cnpj_ordem, cnpj_dv,
+                    candidate.domain, f"https://{candidate.domain}/",
+                    candidate.source, 5, "rejected",
+                )
+
             for candidate in candidates:
-                # DNS pre-check: brand_slug domains are 98% non-existent — skip HTTP if DNS fails
-                if candidate.source == "brand_slug" and not await dns_exists(candidate.domain):
-                    await conn.execute(
-                        _SQL_UPSERT_DOMAIN,
-                        cnpj_basico, cnpj_ordem, cnpj_dv,
-                        candidate.domain, f"https://{candidate.domain}/",
-                        candidate.source, 5, "rejected",
-                    )
+                if candidate.source == "brand_slug" and candidate.domain not in dns_live_domains:
                     continue
                 probe = await probe_domain(candidate.domain, client=client)
                 score = score_domain_evidence(

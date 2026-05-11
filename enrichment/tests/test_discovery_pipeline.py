@@ -1419,3 +1419,54 @@ class TestDnsOnlyMode:
             )
 
         assert called == []
+
+
+class TestNonBrandSlugCandidates:
+    @pytest.mark.asyncio
+    async def test_non_brand_slug_candidates_skip_dns_check(self):
+        """Candidates with source != 'brand_slug' bypass DNS pre-check (else branch)."""
+        from unittest.mock import patch
+
+        rf_email_candidate = DomainCandidate(
+            domain="acme.com.br",
+            source="rf_email",
+            confidence=80,
+            homepage_url="https://acme.com.br",
+            reason="rf email match",
+        )
+
+        conn = FakeConnection(
+            fetchrow_result={
+                "razao_social": "ACME LTDA",
+                "nome_fantasia": "Acme",
+                "email": "contato@acme.com.br",
+                "uf": "SP",
+                "municipio": 1,
+                "municipio_descricao": "SAO PAULO",
+                "cep": "00000000",
+                "ddd1": None,
+                "telefone1": None,
+                "ddd2": None,
+                "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
+            }
+        )
+
+        with (
+            patch("discovery.pipeline.discover_domain_candidates", return_value=[rf_email_candidate]),
+            patch("discovery.pipeline.dns_exists", new_callable=AsyncMock) as mock_dns,
+        ):
+            async with _httpx_client(_weak_ok_handler) as client:
+                outcome = await process_target(
+                    FakePool(conn),
+                    cnpj_basico="12345678",
+                    cnpj_ordem="0001",
+                    cnpj_dv="90",
+                    client=client,
+                )
+
+        mock_dns.assert_not_called()
+        assert outcome.domains_seen >= 1
