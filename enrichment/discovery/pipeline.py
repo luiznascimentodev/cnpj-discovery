@@ -42,10 +42,15 @@ _SQL_FETCH_ESTABELECIMENTO = """
            est.ddd1,
            est.telefone1,
            est.ddd2,
-           est.telefone2
+           est.telefone2,
+           est.bairro,
+           est.logradouro,
+           est.numero,
+           c.descricao AS cnae_descricao
     FROM estabelecimentos est
     JOIN empresas e ON e.cnpj_basico = est.cnpj_basico
     LEFT JOIN municipios m ON m.codigo = est.municipio
+    LEFT JOIN cnaes c ON c.codigo = est.cnae_principal
     WHERE est.cnpj_basico = $1 AND est.cnpj_ordem = $2 AND est.cnpj_dv = $3
 """
 
@@ -228,6 +233,10 @@ async def process_target(
                 cep=_row_value(row, "cep"),
                 city=_row_value(row, "municipio_descricao"),
                 uf=_row_value(row, "uf"),
+                bairro=_row_value(row, "bairro"),
+                logradouro=_row_value(row, "logradouro"),
+                numero=_row_value(row, "numero"),
+                cnae_description=_row_value(row, "cnae_descricao"),
                 partner_names=partner_names,
                 is_parked=probe.parked,
             )
@@ -288,6 +297,10 @@ async def process_target(
                         cep=_row_value(row, "cep"),
                         city=_row_value(row, "municipio_descricao"),
                         uf=_row_value(row, "uf"),
+                        bairro=_row_value(row, "bairro"),
+                        logradouro=_row_value(row, "logradouro"),
+                        numero=_row_value(row, "numero"),
+                        cnae_description=_row_value(row, "cnae_descricao"),
                         partner_names=partner_names,
                         is_parked=probe.parked,
                     )

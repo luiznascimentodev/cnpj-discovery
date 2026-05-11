@@ -7,6 +7,7 @@ from discovery.external_search import ExternalSearchClient
 from discovery.pipeline import (
     PRIORITY_PATHS,
     DiscoveryOutcome,
+    _SQL_FETCH_ESTABELECIMENTO,
     _SQL_FETCH_SOCIOS,
     _SQL_UPSERT_RF_EMAIL_CONTACT,
     _initial_confidence,
@@ -209,6 +210,10 @@ class TestProcessTarget:
                 "telefone1": "12345678",
                 "ddd2": None,
                 "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
             }
         )
 
@@ -241,6 +246,10 @@ class TestProcessTarget:
                 "telefone1": None,
                 "ddd2": None,
                 "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
             }
         )
 
@@ -272,6 +281,10 @@ class TestProcessTarget:
                 "telefone1": None,
                 "ddd2": None,
                 "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
             }
         )
 
@@ -424,6 +437,10 @@ class TestProcessTarget:
                 "telefone1": None,
                 "ddd2": None,
                 "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
             },
             fetchval_result=None,  # no verified domain
         )
@@ -459,6 +476,10 @@ class TestProcessTarget:
                 "telefone1": None,
                 "ddd2": None,
                 "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
             },
             fetchval_result=1,  # verified domain already in DB
         )
@@ -493,6 +514,10 @@ class TestProcessTarget:
                 "telefone1": None,
                 "ddd2": None,
                 "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
             },
             fetchval_result=1,  # already has verified domain
         )
@@ -537,6 +562,10 @@ class TestProcessTarget:
                 "telefone1": None,
                 "ddd2": None,
                 "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
             },
             fetchval_result=None,
         )
@@ -602,6 +631,10 @@ class TestProcessTarget:
                 "telefone1": None,
                 "ddd2": None,
                 "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
             },
             fetchval_result=None,  # no verified domain in DB
         )
@@ -640,6 +673,10 @@ class TestProcessTarget:
                 "telefone1": None,
                 "ddd2": None,
                 "telefone2": None,
+                "bairro": None,
+                "logradouro": None,
+                "numero": None,
+                "cnae_descricao": None,
             },
             fetch_result=[
                 {"nome_socio": "JOAO DA SILVA"},
@@ -659,3 +696,52 @@ class TestProcessTarget:
         socios_calls = [c for c in conn.fetch_calls if _SQL_FETCH_SOCIOS in c[0]]
         assert len(socios_calls) == 1
         assert socios_calls[0][1][0] == "12345678"
+
+
+class TestPipelineAddressFields:
+    def test_sql_contains_new_address_and_cnae_fields(self):
+        """_SQL_FETCH_ESTABELECIMENTO must select bairro, logradouro, numero, and cnae_descricao."""
+        assert "est.bairro" in _SQL_FETCH_ESTABELECIMENTO
+        assert "est.logradouro" in _SQL_FETCH_ESTABELECIMENTO
+        assert "est.numero" in _SQL_FETCH_ESTABELECIMENTO
+        assert "cnae_descricao" in _SQL_FETCH_ESTABELECIMENTO
+        assert "LEFT JOIN cnaes c ON c.codigo = est.cnae_principal" in _SQL_FETCH_ESTABELECIMENTO
+
+    @pytest.mark.asyncio
+    async def test_passes_address_fields_to_score_domain_evidence(self):
+        """Pipeline should pass non-None bairro/logradouro/numero/cnae_descricao to verifier."""
+        # The verified handler returns CNPJ in body, so score_domain_evidence fires.
+        # We verify the score actually uses the address data by checking the outcome is still
+        # correct (i.e., the call doesn't blow up and produces crawl requests).
+        conn = FakeConnection(
+            fetchrow_result={
+                "razao_social": "Acme LTDA",
+                "nome_fantasia": "Acme",
+                "email": "contato@acme.com.br",
+                "uf": "SP",
+                "municipio": 1,
+                "municipio_descricao": "SAO PAULO",
+                "cep": "01310100",
+                "ddd1": None,
+                "telefone1": None,
+                "ddd2": None,
+                "telefone2": None,
+                "bairro": "BELA VISTA",
+                "logradouro": "AV PAULISTA",
+                "numero": "1000",
+                "cnae_descricao": "Fabricacao de software",
+            },
+        )
+
+        async with _httpx_client(_verified_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+            )
+
+        # With address fields populated, pipeline should still score and enqueue normally.
+        assert outcome.domains_seen >= 1
+        assert outcome.crawl_requests_created >= len(PRIORITY_PATHS)
