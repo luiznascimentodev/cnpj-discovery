@@ -322,3 +322,102 @@ class TestUpdateDomainStatus:
         )
 
         assert conn.execute_calls[0][1] == ("12345678", "0001", "90", "acme.com.br", 92, "verified")
+
+
+class TestAddressSignals:
+    def test_bairro_found_adds_8_pts(self):
+        html = "<html><body>Localizado no bairro Vila Mariana, São Paulo</body></html>"
+        result = score_domain_evidence(
+            html,
+            domain="empresa.com.br",
+            cnpj="12345678000190",
+            bairro="Vila Mariana",
+        )
+        assert "bairro_match" in result.signals
+        assert result.score >= 8
+
+    def test_bairro_not_found_adds_nothing(self):
+        html = "<html><body>Bem-vindo à nossa empresa</body></html>"
+        result_without = score_domain_evidence(html, domain="d.com", cnpj="12345678000190")
+        result_with = score_domain_evidence(html, domain="d.com", cnpj="12345678000190", bairro="Moema")
+        assert result_with.score == result_without.score
+
+    def test_logradouro_and_numero_found_adds_15_pts(self):
+        html = "<html><body>Rua das Flores, 123 - São Paulo SP</body></html>"
+        result = score_domain_evidence(
+            html,
+            domain="empresa.com.br",
+            cnpj="12345678000190",
+            logradouro="Rua das Flores",
+            numero="123",
+        )
+        assert "logradouro_match" in result.signals
+        assert result.score >= 15
+
+    def test_logradouro_without_numero_does_not_match(self):
+        html = "<html><body>Rua das Flores em São Paulo</body></html>"
+        result = score_domain_evidence(
+            html,
+            domain="empresa.com.br",
+            cnpj="12345678000190",
+            logradouro="Rua das Flores",
+            numero="999",
+        )
+        assert "logradouro_match" not in result.signals
+
+    def test_logradouro_none_does_not_match(self):
+        html = "<html><body>Rua das Flores, 123</body></html>"
+        result = score_domain_evidence(
+            html, domain="empresa.com.br", cnpj="12345678000190",
+            logradouro=None, numero="123",
+        )
+        assert "logradouro_match" not in result.signals
+
+    def test_cnae_keywords_2_tokens_adds_5_pts(self):
+        html = "<html><body>Desenvolvimento de software customizado para grandes empresas</body></html>"
+        result = score_domain_evidence(
+            html,
+            domain="empresa.com.br",
+            cnpj="12345678000190",
+            cnae_description="Desenvolvimento de programas de computador software sob encomenda",
+        )
+        assert "cnae_keyword_match" in result.signals
+        assert result.score >= 5
+
+    def test_cnae_only_1_token_does_not_match(self):
+        html = "<html><body>Padaria artesanal São Paulo</body></html>"
+        result = score_domain_evidence(
+            html, domain="d.com", cnpj="12345678000190",
+            cnae_description="Fabricação de pão industrializado processado",
+        )
+        assert "cnae_keyword_match" not in result.signals
+
+    def test_cnae_none_ignored(self):
+        html = "<html><body>texto qualquer</body></html>"
+        result = score_domain_evidence(
+            html, domain="d.com", cnpj="12345678000190", cnae_description=None
+        )
+        assert "cnae_keyword_match" not in result.signals
+
+    def test_full_address_combined_score(self):
+        """CEP + bairro + logradouro+numero combined should reach candidate status."""
+        cep = "01310100"
+        html = (
+            f"<html><body>"
+            f"CEP: {cep[:5]}-{cep[5:]} | "
+            f"Av. Paulista, 1000 | "
+            f"Bela Vista | São Paulo"
+            f"</body></html>"
+        )
+        result = score_domain_evidence(
+            html,
+            domain="empresa.com.br",
+            cnpj="99999999000199",
+            cep=cep,
+            bairro="Bela Vista",
+            logradouro="Av. Paulista",
+            numero="1000",
+        )
+        # CEP(20) + bairro(8) + logradouro+numero(15) = 43 → candidate
+        assert result.score >= 40
+        assert result.status in {"candidate", "verified"}

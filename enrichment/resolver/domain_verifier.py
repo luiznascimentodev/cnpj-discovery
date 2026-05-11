@@ -68,6 +68,10 @@ def score_domain_evidence(
     cep: str | None = None,
     city: str | None = None,
     uf: str | None = None,
+    bairro: str | None = None,
+    logradouro: str | None = None,
+    numero: str | None = None,
+    cnae_description: str | None = None,
     partner_names: list[str] | None = None,
     is_directory: bool = False,
     is_parked: bool = False,
@@ -119,6 +123,35 @@ def score_domain_evidence(
     if uf and re.search(rf"\b{re.escape(uf.lower())}\b", html_norm):
         score += 5
         signals.append("uf_match")
+
+    # Bairro match — +8 pts
+    if bairro:
+        bairro_norm = _normalize_text(bairro).strip()
+        if bairro_norm and re.search(rf"\b{re.escape(bairro_norm)}\b", html_norm):
+            score += 8
+            signals.append("bairro_match")
+
+    # Logradouro + número — +15 pts (both must appear)
+    if logradouro and numero:
+        logradouro_norm = _normalize_text(logradouro).strip()
+        numero_digits = re.sub(r"\D", "", numero)
+        html_digits = re.sub(r"\D", "", html)
+        if (logradouro_norm
+                and re.search(rf"\b{re.escape(logradouro_norm)}\b", html_norm)
+                and numero_digits
+                and numero_digits in html_digits):
+            score += 15
+            signals.append("logradouro_match")
+
+    # CNAE description keywords — +5 pts if >= 2 tokens of 4+ chars found
+    if cnae_description:
+        cnae_norm = _normalize_text(cnae_description)
+        cnae_tokens = [t for t in cnae_norm.split() if len(t) >= 4]
+        if cnae_tokens:
+            matches = sum(1 for t in cnae_tokens if re.search(rf"\b{re.escape(t)}\b", html_norm))
+            if matches >= 2:
+                score += 5
+                signals.append("cnae_keyword_match")
 
     if rf_phone_normalized and rf_phone_normalized in digits_only:
         score += 20
