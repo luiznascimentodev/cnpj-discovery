@@ -177,7 +177,7 @@ services:
       - --interval
       - "5"
       - --seed-batch-size
-      - "${ENRICHMENT_SEED_BATCH:-50000}"
+      - "${ENRICHMENT_SEED_BATCH:-5000}"
       - --discovery-batch-size
       - "${ENRICHMENT_DISCOVERY_BATCH:-500}"
       - --crawl-batch-size

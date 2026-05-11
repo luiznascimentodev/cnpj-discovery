@@ -5,11 +5,18 @@ anti-bot, sem cookies. Detecta páginas estacionadas/parked para descartá-las
 antes de consumir orçamento de crawl.
 """
 import asyncio
+import concurrent.futures
 import socket
 from dataclasses import dataclass
 from typing import Optional
 
 import httpx
+
+# Dedicated thread pool for DNS lookups. The default asyncio executor fills with
+# zombie threads when wait_for times out (the underlying thread keeps running until
+# the OS DNS timeout of 5-10s). A large dedicated pool prevents this from blocking
+# all other executor tasks.
+_DNS_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=200, thread_name_prefix="dns")
 
 DEFAULT_USER_AGENT = "CNPJDiscoveryBot/1.0 (+https://cnpj-discovery.example/crawler)"
 DEFAULT_TIMEOUT_SECONDS = 12.0
@@ -94,13 +101,14 @@ async def probe_domain(
 async def dns_exists(domain: str, *, timeout: float = 0.5) -> bool:
     """Returns True if domain has at least one A/AAAA DNS record.
 
-    Uses stdlib socket via thread executor — no extra dependencies.
-    ~5ms on cache hit, ~50ms on miss, vs ~500ms+ for HTTP probe.
+    Uses a dedicated large thread pool to avoid clogging the default executor
+    with zombie threads (wait_for cancels the Future but the thread keeps
+    blocking until the OS DNS timeout of 5-10s).
     """
     loop = asyncio.get_running_loop()
     try:
         await asyncio.wait_for(
-            loop.run_in_executor(None, socket.getaddrinfo, domain, None),
+            loop.run_in_executor(_DNS_EXECUTOR, socket.getaddrinfo, domain, None),
             timeout=timeout,
         )
         return True
