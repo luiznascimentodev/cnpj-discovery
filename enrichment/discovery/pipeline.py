@@ -104,6 +104,14 @@ _SQL_FETCH_SOCIOS = """
     LIMIT 5
 """
 
+_SQL_FETCH_MATRIX_DOMAIN = """
+    SELECT domain, homepage_url, confidence
+    FROM paid_enrichment.company_domains
+    WHERE cnpj_basico = $1 AND cnpj_ordem = '0001' AND status = 'verified'
+    ORDER BY confidence DESC
+    LIMIT 1
+"""
+
 
 @dataclass(frozen=True)
 class DiscoveryOutcome:
@@ -168,6 +176,24 @@ def _row_value(row, key: str):
         return None
 
 
+async def _upsert_matrix_domain(
+    pool, cnpj_basico: str, cnpj_ordem: str, cnpj_dv: str, matrix_row
+) -> None:
+    """Copies verified domain from parent company to branch."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            _SQL_UPSERT_DOMAIN,
+            cnpj_basico,
+            cnpj_ordem,
+            cnpj_dv,
+            matrix_row["domain"],
+            matrix_row["homepage_url"],
+            "matrix_resolution",
+            matrix_row["confidence"],
+            "verified",
+        )
+
+
 async def process_target(
     pool,
     *,
@@ -205,6 +231,23 @@ async def process_target(
                 rf_email.normalized_value,
             )
         rf_contacts_saved = 1
+
+    # Branches inherit domain from parent company when available
+    if cnpj_ordem != "0001":
+        async with pool.acquire() as conn:
+            matrix_row = await conn.fetchrow(
+                _SQL_FETCH_MATRIX_DOMAIN, cnpj_basico
+            )
+        if matrix_row:
+            await _upsert_matrix_domain(
+                pool, cnpj_basico, cnpj_ordem, cnpj_dv, matrix_row
+            )
+            return DiscoveryOutcome(
+                cnpj=cnpj,
+                domains_seen=1,
+                crawl_requests_created=0,
+                rf_contacts_saved=rf_contacts_saved,
+            )
 
     candidates = discover_domain_candidates(
         legal_name=_row_value(row, "razao_social"),

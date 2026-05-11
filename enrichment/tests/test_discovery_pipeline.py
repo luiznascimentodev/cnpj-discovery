@@ -8,6 +8,7 @@ from discovery.pipeline import (
     PRIORITY_PATHS,
     DiscoveryOutcome,
     _SQL_FETCH_ESTABELECIMENTO,
+    _SQL_FETCH_MATRIX_DOMAIN,
     _SQL_FETCH_SOCIOS,
     _SQL_UPSERT_RF_EMAIL_CONTACT,
     _initial_confidence,
@@ -745,3 +746,156 @@ class TestPipelineAddressFields:
         # With address fields populated, pipeline should still score and enqueue normally.
         assert outcome.domains_seen >= 1
         assert outcome.crawl_requests_created >= len(PRIORITY_PATHS)
+
+
+_FILIAL_ROW = {
+    "razao_social": "Acme LTDA",
+    "nome_fantasia": "Acme",
+    "email": None,
+    "uf": "SP",
+    "municipio": 1,
+    "municipio_descricao": "SAO PAULO",
+    "cep": "00000000",
+    "ddd1": None,
+    "telefone1": None,
+    "ddd2": None,
+    "telefone2": None,
+    "bairro": None,
+    "logradouro": None,
+    "numero": None,
+    "cnae_descricao": None,
+}
+
+_MATRIX_DOMAIN_ROW = {
+    "domain": "acme.com.br",
+    "homepage_url": "https://acme.com.br/",
+    "confidence": 95,
+}
+
+
+class FakeConnectionDispatch:
+    """Like FakeConnection but returns different fetchrow results based on the query."""
+
+    def __init__(self, estabelecimento_row, matrix_domain_row):
+        self._estabelecimento_row = estabelecimento_row
+        self._matrix_domain_row = matrix_domain_row
+        self.execute_calls = []
+        self.fetch_calls = []
+        self.fetchrow_calls = []
+
+    async def fetchrow(self, query, *args):
+        self.fetchrow_calls.append((query, args))
+        if "company_domains" in query:
+            return self._matrix_domain_row
+        return self._estabelecimento_row
+
+    async def fetchval(self, query, *args):
+        return None
+
+    async def fetch(self, query, *args):
+        self.fetch_calls.append((query, args))
+        return []
+
+    async def execute(self, query, *args):
+        self.execute_calls.append((query, args))
+
+
+class TestMatrixFilialResolution:
+    @pytest.mark.asyncio
+    async def test_filial_inherits_verified_domain_from_matrix(self):
+        """Branch with cnpj_ordem != '0001' should copy verified domain from parent."""
+        conn = FakeConnectionDispatch(
+            estabelecimento_row=_FILIAL_ROW,
+            matrix_domain_row=_MATRIX_DOMAIN_ROW,
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0002",
+                cnpj_dv="73",
+                client=client,
+            )
+
+        # Should return early with domains_seen=1 and no crawl requests
+        assert outcome == DiscoveryOutcome(
+            cnpj="1234567800027" + "3",
+            domains_seen=1,
+            crawl_requests_created=0,
+            rf_contacts_saved=0,
+        )
+
+        # _SQL_FETCH_MATRIX_DOMAIN must have been called
+        matrix_fetchrow_calls = [
+            c for c in conn.fetchrow_calls if "company_domains" in c[0]
+        ]
+        assert len(matrix_fetchrow_calls) == 1
+        assert matrix_fetchrow_calls[0][1][0] == "12345678"
+
+        # _SQL_UPSERT_DOMAIN must have been called with source="matrix_resolution"
+        domain_upsert_calls = [
+            c for c in conn.execute_calls if "company_domains" in c[0]
+        ]
+        assert len(domain_upsert_calls) == 1
+        upsert_args = domain_upsert_calls[0][1]
+        # args: cnpj_basico, cnpj_ordem, cnpj_dv, domain, homepage_url, source, confidence, status
+        assert upsert_args[0] == "12345678"
+        assert upsert_args[1] == "0002"
+        assert upsert_args[5] == "matrix_resolution"
+        assert upsert_args[7] == "verified"
+
+    @pytest.mark.asyncio
+    async def test_matriz_skips_matrix_resolution(self):
+        """Parent company (cnpj_ordem='0001') should never call _SQL_FETCH_MATRIX_DOMAIN."""
+        conn = FakeConnectionDispatch(
+            estabelecimento_row={
+                **_FILIAL_ROW,
+                "email": "contato@acme.com.br",
+            },
+            matrix_domain_row=_MATRIX_DOMAIN_ROW,
+        )
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+            )
+
+        # _SQL_FETCH_MATRIX_DOMAIN must NOT have been called for the matriz
+        matrix_fetchrow_calls = [
+            c for c in conn.fetchrow_calls if _SQL_FETCH_MATRIX_DOMAIN in c[0]
+        ]
+        assert matrix_fetchrow_calls == []
+
+    @pytest.mark.asyncio
+    async def test_filial_runs_full_discovery_when_no_matrix_domain(self):
+        """Branch should run normal discovery when parent has no verified domain."""
+        conn = FakeConnectionDispatch(
+            estabelecimento_row={**_FILIAL_ROW, "email": "contato@acme.com.br"},
+            matrix_domain_row=None,  # no verified matrix domain
+        )
+
+        async with _httpx_client(_verified_handler) as client:
+            outcome = await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0002",
+                cnpj_dv="73",
+                client=client,
+            )
+
+        # Full discovery should run: candidates generated and domain upserted
+        assert outcome.domains_seen >= 1
+
+        domain_upsert_calls = [
+            c for c in conn.execute_calls if "company_domains" in c[0]
+        ]
+        # At least one domain was upserted via normal discovery
+        assert len(domain_upsert_calls) >= 1
+        # source must NOT be "matrix_resolution" — it came from real discovery
+        for call in domain_upsert_calls:
+            assert call[1][5] != "matrix_resolution"
