@@ -48,9 +48,14 @@ from scheduler import (
     complete_target,
     release_stale_locks,
     seed_active_targets,
+    seed_phase1_targets,
+    seed_phase2_targets,
 )
 
 DEFAULT_INTERVAL_SECONDS = 30
+
+_PHASE1_REASON = "phase1_dns"
+_PHASE2_REASON = "phase2_search"
 
 
 def default_worker_id() -> str:
@@ -76,6 +81,14 @@ async def do_seed(pool, *, reason: str, priority: int, batch_size: int) -> int:
     )
 
 
+async def do_seed_phase1(pool, *, batch_size: int = 50_000) -> int:
+    return await seed_phase1_targets(pool, batch_size=batch_size)
+
+
+async def do_seed_phase2(pool, *, batch_size: int = 10_000) -> int:
+    return await seed_phase2_targets(pool, batch_size=batch_size)
+
+
 async def do_discovery(
     pool,
     *,
@@ -85,12 +98,15 @@ async def do_discovery(
     lease_seconds: int,
     concurrency: int = DISCOVERY_CONCURRENCY,
     external_search=None,
+    dns_only: bool = False,
+    reason: str | None = None,
 ) -> tuple[int, int]:
     targets = await claim_targets(
         pool,
         worker_id=worker_id,
         batch_size=batch_size,
         lease_seconds=lease_seconds,
+        reason=reason,
     )
     if not targets:
         return 0, 0
@@ -107,6 +123,7 @@ async def do_discovery(
                     cnpj_dv=target.cnpj_dv,
                     client=client,
                     external_search=external_search,
+                    dns_only=dns_only,
                 )
                 await complete_target(pool, target_id=target.id, status="done")
                 return outcome.crawl_requests_created
@@ -164,20 +181,48 @@ def _build_external_search() -> ExternalSearchClient:
 
 
 async def do_one_loop(pool, client, args) -> TickStats:
-    seeded = await do_seed(
-        pool,
-        reason=args.reason,
-        priority=args.priority,
-        batch_size=args.seed_batch_size,
-    )
-    claimed, crawl_created = await do_discovery(
-        pool,
-        client=client,
-        worker_id=args.worker_id,
-        batch_size=args.discovery_batch_size,
-        lease_seconds=args.lease_seconds,
-        external_search=_build_external_search(),
-    )
+    phase = getattr(args, "phase", 0)
+
+    if phase == 1:
+        seeded = await do_seed_phase1(pool, batch_size=args.seed_batch_size)
+        claimed, crawl_created = await do_discovery(
+            pool,
+            client=client,
+            worker_id=args.worker_id,
+            batch_size=args.discovery_batch_size,
+            lease_seconds=args.lease_seconds,
+            dns_only=True,
+            external_search=None,
+            reason=_PHASE1_REASON,
+        )
+    elif phase == 2:
+        seeded = await do_seed_phase2(pool, batch_size=args.seed_batch_size)
+        claimed, crawl_created = await do_discovery(
+            pool,
+            client=client,
+            worker_id=args.worker_id,
+            batch_size=args.discovery_batch_size,
+            lease_seconds=args.lease_seconds,
+            dns_only=False,
+            external_search=_build_external_search(),
+            reason=_PHASE2_REASON,
+        )
+    else:
+        seeded = await do_seed(
+            pool,
+            reason=args.reason,
+            priority=args.priority,
+            batch_size=args.seed_batch_size,
+        )
+        claimed, crawl_created = await do_discovery(
+            pool,
+            client=client,
+            worker_id=args.worker_id,
+            batch_size=args.discovery_batch_size,
+            lease_seconds=args.lease_seconds,
+            external_search=_build_external_search(),
+        )
+
     crawler_done, contacts = await do_crawler(
         pool,
         client=client,
@@ -207,6 +252,24 @@ async def cmd_seed(args) -> None:
             batch_size=args.batch_size,
         )
         print(f"seed-targets reason={args.reason} rows={seeded}")
+    finally:
+        await close_pool()
+
+
+async def cmd_seed_phase1(args) -> None:
+    pool = await create_pool()
+    try:
+        seeded = await do_seed_phase1(pool, batch_size=args.batch_size)
+        print(f"seed-phase1 rows={seeded}")
+    finally:
+        await close_pool()
+
+
+async def cmd_seed_phase2(args) -> None:
+    pool = await create_pool()
+    try:
+        seeded = await do_seed_phase2(pool, batch_size=args.batch_size)
+        print(f"seed-phase2 rows={seeded}")
     finally:
         await close_pool()
 
@@ -475,7 +538,17 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--lease-seconds", type=int, default=600)
     worker.add_argument("--user-agent", default=DEFAULT_USER_AGENT)
     worker.add_argument("--max-iters", type=int, default=0, help="0 = sem limite")
+    worker.add_argument("--phase", type=int, default=0,
+                        help="1=dns-only sweep, 2=external search, 0=legacy")
     worker.set_defaults(func=cmd_worker)
+
+    seed_p1 = sub.add_parser("seed-phase1")
+    seed_p1.add_argument("--batch-size", type=int, default=50_000)
+    seed_p1.set_defaults(func=cmd_seed_phase1)
+
+    seed_p2 = sub.add_parser("seed-phase2")
+    seed_p2.add_argument("--batch-size", type=int, default=10_000)
+    seed_p2.set_defaults(func=cmd_seed_phase2)
 
     return parser
 

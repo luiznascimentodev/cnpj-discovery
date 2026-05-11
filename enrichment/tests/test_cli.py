@@ -18,6 +18,8 @@ from cli import (
     cmd_release_stale,
     cmd_resolve_domain,
     cmd_seed,
+    cmd_seed_phase1,
+    cmd_seed_phase2,
     cmd_worker,
     default_worker_id,
     do_crawler,
@@ -25,6 +27,8 @@ from cli import (
     do_one_loop,
     do_release_stale,
     do_seed,
+    do_seed_phase1,
+    do_seed_phase2,
     main,
 )
 from crawler.domain_runner import DomainRunStats
@@ -84,7 +88,7 @@ class TestDoFunctions:
             ),
         ]
 
-        async def discover_side_effect(pool, *, cnpj_basico, cnpj_ordem, cnpj_dv, client, external_search=None):
+        async def discover_side_effect(pool, *, cnpj_basico, cnpj_ordem, cnpj_dv, client, external_search=None, dns_only=False):
             if cnpj_basico == "22222222":
                 raise RuntimeError("boom")
             return DiscoveryOutcome(cnpj="x", domains_seen=2, crawl_requests_created=5)
@@ -406,3 +410,181 @@ class TestMainEntrypoint:
         assert called["args"].reason == "r"
         assert called["args"].priority == 10
         assert called["args"].batch_size == 5
+
+
+class TestPhaseSeedFunctions:
+    @pytest.mark.asyncio
+    async def test_do_seed_phase1_calls_seed_phase1_targets(self):
+        pool = object()
+        with patch("cli.seed_phase1_targets", new_callable=AsyncMock, return_value=50000) as m:
+            result = await do_seed_phase1(pool, batch_size=50000)
+        assert result == 50000
+        m.assert_awaited_once_with(pool, batch_size=50000)
+
+    @pytest.mark.asyncio
+    async def test_do_seed_phase2_calls_seed_phase2_targets(self):
+        pool = object()
+        with patch("cli.seed_phase2_targets", new_callable=AsyncMock, return_value=10000) as m:
+            result = await do_seed_phase2(pool, batch_size=10000)
+        assert result == 10000
+        m.assert_awaited_once_with(pool, batch_size=10000)
+
+
+class TestPhaseAwareDiscovery:
+    @pytest.mark.asyncio
+    async def test_do_discovery_phase1_passes_dns_only_true(self):
+        """Phase 1: dns_only=True must reach discover_target."""
+        targets = [
+            ClaimedTarget(id=1, cnpj_basico="12345678", cnpj_ordem="0001", cnpj_dv="90",
+                          reason="phase1_dns", attempts=1, priority=60),
+        ]
+        received_kwargs = {}
+
+        async def discover_side_effect(pool, *, cnpj_basico, cnpj_ordem, cnpj_dv, client,
+                                       external_search=None, dns_only=False):
+            received_kwargs["dns_only"] = dns_only
+            received_kwargs["external_search"] = external_search
+            return DiscoveryOutcome(cnpj="x", domains_seen=0, crawl_requests_created=0)
+
+        with (
+            patch("cli.claim_targets", new_callable=AsyncMock, return_value=targets),
+            patch("cli.discover_target", AsyncMock(side_effect=discover_side_effect)),
+            patch("cli.complete_target", new_callable=AsyncMock),
+        ):
+            async with _stub_client() as client:
+                await do_discovery(
+                    object(), client=client, worker_id="w",
+                    batch_size=10, lease_seconds=300,
+                    dns_only=True, external_search=None,
+                )
+
+        assert received_kwargs["dns_only"] is True
+        assert received_kwargs["external_search"] is None
+
+    @pytest.mark.asyncio
+    async def test_do_discovery_phase2_passes_dns_only_false(self):
+        """Phase 2: dns_only=False and external_search is forwarded."""
+        targets = [
+            ClaimedTarget(id=1, cnpj_basico="12345678", cnpj_ordem="0001", cnpj_dv="90",
+                          reason="phase2_search", attempts=1, priority=50),
+        ]
+        received_kwargs = {}
+
+        class FakeSearch:
+            pass
+
+        async def discover_side_effect(pool, *, cnpj_basico, cnpj_ordem, cnpj_dv, client,
+                                       external_search=None, dns_only=False):
+            received_kwargs["dns_only"] = dns_only
+            received_kwargs["external_search"] = external_search
+            return DiscoveryOutcome(cnpj="x", domains_seen=0, crawl_requests_created=0)
+
+        fake_search = FakeSearch()
+        with (
+            patch("cli.claim_targets", new_callable=AsyncMock, return_value=targets),
+            patch("cli.discover_target", AsyncMock(side_effect=discover_side_effect)),
+            patch("cli.complete_target", new_callable=AsyncMock),
+        ):
+            async with _stub_client() as client:
+                await do_discovery(
+                    object(), client=client, worker_id="w",
+                    batch_size=10, lease_seconds=300,
+                    dns_only=False, external_search=fake_search,
+                )
+
+        assert received_kwargs["dns_only"] is False
+        assert received_kwargs["external_search"] is fake_search
+
+
+class TestPhaseAwareWorkerLoop:
+    @pytest.mark.asyncio
+    async def test_do_one_loop_phase1_uses_seed_phase1_and_dns_only(self):
+        import types
+        args = types.SimpleNamespace(
+            phase=1,
+            seed_batch_size=50000,
+            worker_id="w",
+            discovery_batch_size=500,
+            lease_seconds=600,
+            crawl_batch_size=20,
+            user_agent="UA",
+        )
+        with (
+            patch("cli.do_seed_phase1", new_callable=AsyncMock, return_value=50000),
+            patch("cli.do_discovery", new_callable=AsyncMock, return_value=(500, 0)) as disc,
+            patch("cli.do_crawler", new_callable=AsyncMock, return_value=(0, 0)),
+            patch("cli.do_release_stale", new_callable=AsyncMock, return_value=0),
+        ):
+            async with _stub_client() as client:
+                stats = await do_one_loop(object(), client, args)
+
+        disc_call = disc.await_args
+        assert disc_call.kwargs["dns_only"] is True
+        assert disc_call.kwargs["reason"] == "phase1_dns"
+        assert disc_call.kwargs["external_search"] is None
+
+    @pytest.mark.asyncio
+    async def test_do_one_loop_phase2_uses_seed_phase2_and_external_search(self):
+        import types
+        args = types.SimpleNamespace(
+            phase=2,
+            seed_batch_size=10000,
+            worker_id="w",
+            discovery_batch_size=50,
+            lease_seconds=600,
+            crawl_batch_size=20,
+            user_agent="UA",
+        )
+        with (
+            patch("cli.do_seed_phase2", new_callable=AsyncMock, return_value=10000),
+            patch("cli.do_discovery", new_callable=AsyncMock, return_value=(50, 0)) as disc,
+            patch("cli.do_crawler", new_callable=AsyncMock, return_value=(0, 0)),
+            patch("cli.do_release_stale", new_callable=AsyncMock, return_value=0),
+            patch("cli._build_external_search", return_value=object()),
+        ):
+            async with _stub_client() as client:
+                stats = await do_one_loop(object(), client, args)
+
+        disc_call = disc.await_args
+        assert disc_call.kwargs["dns_only"] is False
+        assert disc_call.kwargs["reason"] == "phase2_search"
+
+
+class TestNewPhaseCommands:
+    def test_parser_seed_phase1(self):
+        args = build_parser().parse_args(["seed-phase1", "--batch-size", "50000"])
+        assert args.command == "seed-phase1"
+        assert args.batch_size == 50000
+
+    def test_parser_seed_phase2(self):
+        args = build_parser().parse_args(["seed-phase2", "--batch-size", "10000"])
+        assert args.command == "seed-phase2"
+        assert args.batch_size == 10000
+
+    def test_parser_worker_phase_flag(self):
+        args = build_parser().parse_args(["worker", "--phase", "1", "--max-iters", "1"])
+        assert args.phase == 1
+
+    def test_parser_worker_phase_default(self):
+        args = build_parser().parse_args(["worker", "--max-iters", "1"])
+        assert args.phase == 0
+
+    @pytest.mark.asyncio
+    async def test_cmd_seed_phase1_runs(self):
+        args = SimpleNamespace(batch_size=50000)
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.do_seed_phase1", AsyncMock(return_value=50000)),
+        ):
+            await cmd_seed_phase1(args)
+
+    @pytest.mark.asyncio
+    async def test_cmd_seed_phase2_runs(self):
+        args = SimpleNamespace(batch_size=10000)
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.do_seed_phase2", AsyncMock(return_value=10000)),
+        ):
+            await cmd_seed_phase2(args)
