@@ -5,13 +5,20 @@ descartar parked/dead domains e enfileira URLs prioritárias para o crawler.
 Idempotente via `ON CONFLICT DO NOTHING/UPDATE` — a chamada repetida do
 mesmo target não duplica linhas.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import httpx
 
 from discovery.website_probe import ProbeResult, probe_domain
 from domain_discovery import DomainCandidate, discover_domain_candidates
-from rf_baseline import normalize_rf_email
+from resolver.domain_verifier import DomainScoreResult, score_domain_evidence
+from rf_baseline import normalize_rf_email, normalize_rf_phone
+
+if TYPE_CHECKING:  # pragma: no cover
+    from discovery.external_search import ExternalSearchClient
 
 PRIORITY_PATHS = (
     "/",
@@ -30,9 +37,15 @@ _SQL_FETCH_ESTABELECIMENTO = """
            est.email,
            est.uf,
            est.municipio,
-           est.cep
+           m.descricao AS municipio_descricao,
+           est.cep,
+           est.ddd1,
+           est.telefone1,
+           est.ddd2,
+           est.telefone2
     FROM estabelecimentos est
     JOIN empresas e ON e.cnpj_basico = est.cnpj_basico
+    LEFT JOIN municipios m ON m.codigo = est.municipio
     WHERE est.cnpj_basico = $1 AND est.cnpj_ordem = $2 AND est.cnpj_dv = $3
 """
 
@@ -53,6 +66,22 @@ _SQL_UPSERT_DOMAIN = """
         last_seen = now()
 """
 
+_SQL_UPSERT_RF_EMAIL_CONTACT = """
+    INSERT INTO paid_enrichment.enriched_contacts (
+        cnpj_basico, cnpj_ordem, cnpj_dv, contact_type, value, normalized_value,
+        label, source, confidence, status, first_seen, last_seen
+    )
+    VALUES ($1, $2, $3, 'email', $4, $4, 'Email RF', 'rf_email_direct', 40, 'active', now(), now())
+    ON CONFLICT (cnpj_basico, cnpj_ordem, cnpj_dv, contact_type, normalized_value)
+    DO UPDATE SET last_seen = now()
+"""
+
+_SQL_HAS_VERIFIED_DOMAIN = """
+    SELECT 1 FROM paid_enrichment.company_domains
+    WHERE cnpj_basico = $1 AND cnpj_ordem = $2 AND cnpj_dv = $3 AND status = 'verified'
+    LIMIT 1
+"""
+
 _SQL_INSERT_CRAWL_REQUEST = """
     INSERT INTO paid_enrichment.crawl_requests (
         cnpj_basico, cnpj_ordem, cnpj_dv, url, domain, source, priority, status, depth,
@@ -62,26 +91,76 @@ _SQL_INSERT_CRAWL_REQUEST = """
     ON CONFLICT (cnpj_basico, cnpj_ordem, cnpj_dv, url) DO NOTHING
 """
 
+_SQL_FETCH_SOCIOS = """
+    SELECT nome_socio
+    FROM socios
+    WHERE cnpj_basico = $1
+    ORDER BY data_entrada_sociedade DESC NULLS LAST
+    LIMIT 5
+"""
+
 
 @dataclass(frozen=True)
 class DiscoveryOutcome:
     cnpj: str
     domains_seen: int
     crawl_requests_created: int
+    rf_contacts_saved: int = 0
 
 
-def _initial_status(probe: ProbeResult) -> str:
+def _initial_status(probe: ProbeResult, score: DomainScoreResult | None = None) -> str:
     if probe.parked:
         return "rejected"
+    if score is not None:
+        return score.status
     return "candidate"
 
 
-def _initial_confidence(candidate: DomainCandidate, probe: ProbeResult) -> int:
+def _initial_confidence(
+    candidate: DomainCandidate,
+    probe: ProbeResult,
+    score: DomainScoreResult | None = None,
+) -> int:
     if probe.parked:
         return min(candidate.confidence, 5)
     if not probe.ok:
         return min(candidate.confidence, 30)
+    if score is not None:
+        return score.score
     return candidate.confidence
+
+
+def _rf_email_domain(email) -> str | None:
+    if not email or email.classification != "corporate_domain":
+        return None
+    return email.normalized_value.rsplit("@", 1)[1]
+
+
+def _strong_identity_signals(score: DomainScoreResult) -> bool:
+    return any(
+        signal in score.signals
+        for signal in {
+            "cnpj_exact",
+            "legal_exact",
+            "legal_all_tokens",
+            "fantasy_exact",
+            "fantasy_all_tokens",
+            "rf_phone_match",
+        }
+    )
+
+
+def _should_enqueue_crawl(score: DomainScoreResult) -> bool:
+    if score.status == "verified":
+        return True
+    return score.score >= 60 and _strong_identity_signals(score)
+
+
+def _row_value(row, key: str):
+    try:
+        return row[key]
+    except (KeyError, TypeError, IndexError):
+        return None
 
 
 async def process_target(
@@ -91,6 +170,7 @@ async def process_target(
     cnpj_ordem: str,
     cnpj_dv: str,
     client: httpx.AsyncClient,
+    external_search: ExternalSearchClient | None = None,
 ) -> DiscoveryOutcome:
     cnpj = f"{cnpj_basico}{cnpj_ordem}{cnpj_dv}"
 
@@ -102,19 +182,55 @@ async def process_target(
     if not row:
         return DiscoveryOutcome(cnpj=cnpj, domains_seen=0, crawl_requests_created=0)
 
+    async with pool.acquire() as conn:
+        socios_rows = await conn.fetch(_SQL_FETCH_SOCIOS, cnpj_basico)
+    partner_names = [row["nome_socio"] for row in socios_rows if row["nome_socio"]]
+
+    rf_email = normalize_rf_email(_row_value(row, "email"))
+    rf_phone1 = normalize_rf_phone(_row_value(row, "ddd1"), _row_value(row, "telefone1"))
+    rf_phone2 = normalize_rf_phone(_row_value(row, "ddd2"), _row_value(row, "telefone2"))
+    rf_phone = rf_phone1 or rf_phone2
+
+    rf_contacts_saved = 0
+    if rf_email and rf_email.classification == "public_provider":
+        async with pool.acquire() as conn:
+            await conn.execute(
+                _SQL_UPSERT_RF_EMAIL_CONTACT,
+                cnpj_basico, cnpj_ordem, cnpj_dv,
+                rf_email.normalized_value,
+            )
+        rf_contacts_saved = 1
+
     candidates = discover_domain_candidates(
-        legal_name=row["razao_social"],
-        trade_name=row["nome_fantasia"],
-        rf_email=normalize_rf_email(row["email"]),
+        legal_name=_row_value(row, "razao_social"),
+        trade_name=_row_value(row, "nome_fantasia"),
+        rf_email=rf_email,
     )
 
     if not candidates:
-        return DiscoveryOutcome(cnpj=cnpj, domains_seen=0, crawl_requests_created=0)
+        return DiscoveryOutcome(
+            cnpj=cnpj, domains_seen=0, crawl_requests_created=0,
+            rf_contacts_saved=rf_contacts_saved,
+        )
 
     requests_created = 0
     async with pool.acquire() as conn:
         for candidate in candidates:
             probe = await probe_domain(candidate.domain, client=client)
+            score = score_domain_evidence(
+                probe.body,
+                domain=candidate.domain,
+                cnpj=cnpj,
+                legal_name=_row_value(row, "razao_social"),
+                fantasy_name=_row_value(row, "nome_fantasia"),
+                rf_email_domain=_rf_email_domain(rf_email),
+                rf_phone_normalized=rf_phone.normalized_value if rf_phone else None,
+                cep=_row_value(row, "cep"),
+                city=_row_value(row, "municipio_descricao"),
+                uf=_row_value(row, "uf"),
+                partner_names=partner_names,
+                is_parked=probe.parked,
+            )
 
             homepage_url = probe.final_url if probe.ok else candidate.homepage_url
             await conn.execute(
@@ -125,11 +241,11 @@ async def process_target(
                 candidate.domain,
                 homepage_url,
                 candidate.source,
-                _initial_confidence(candidate, probe),
-                _initial_status(probe),
+                _initial_confidence(candidate, probe, score),
+                _initial_status(probe, score),
             )
 
-            if probe.ok and not probe.parked:
+            if probe.ok and not probe.parked and _should_enqueue_crawl(score):
                 for path in PRIORITY_PATHS:
                     url = f"https://{candidate.domain}{path}"
                     await conn.execute(
@@ -144,8 +260,60 @@ async def process_target(
                     )
                     requests_created += 1
 
+    if external_search is not None:
+        async with pool.acquire() as conn:
+            already_verified = await conn.fetchval(
+                _SQL_HAS_VERIFIED_DOMAIN, cnpj_basico, cnpj_ordem, cnpj_dv
+            )
+        if not already_verified:
+            extra_candidates = await external_search.enrich_candidates(
+                cnpj14=cnpj,
+                legal_name=_row_value(row, "razao_social"),
+                trade_name=_row_value(row, "nome_fantasia"),
+                city=_row_value(row, "municipio_descricao"),
+                partner_names=partner_names,
+                client=client,
+            )
+            async with pool.acquire() as conn:
+                for candidate in extra_candidates:
+                    probe = await probe_domain(candidate.domain, client=client)
+                    score = score_domain_evidence(
+                        probe.body,
+                        domain=candidate.domain,
+                        cnpj=cnpj,
+                        legal_name=_row_value(row, "razao_social"),
+                        fantasy_name=_row_value(row, "nome_fantasia"),
+                        rf_email_domain=_rf_email_domain(rf_email),
+                        rf_phone_normalized=rf_phone.normalized_value if rf_phone else None,
+                        cep=_row_value(row, "cep"),
+                        city=_row_value(row, "municipio_descricao"),
+                        uf=_row_value(row, "uf"),
+                        partner_names=partner_names,
+                        is_parked=probe.parked,
+                    )
+                    homepage_url = probe.final_url if probe.ok else candidate.homepage_url
+                    await conn.execute(
+                        _SQL_UPSERT_DOMAIN,
+                        cnpj_basico, cnpj_ordem, cnpj_dv,
+                        candidate.domain, homepage_url,
+                        candidate.source,
+                        _initial_confidence(candidate, probe, score),
+                        _initial_status(probe, score),
+                    )
+                    if probe.ok and not probe.parked and _should_enqueue_crawl(score):
+                        for path in PRIORITY_PATHS:
+                            url = f"https://{candidate.domain}{path}"
+                            await conn.execute(
+                                _SQL_INSERT_CRAWL_REQUEST,
+                                cnpj_basico, cnpj_ordem, cnpj_dv,
+                                url, candidate.domain,
+                                candidate.source, candidate.confidence,
+                            )
+                            requests_created += 1
+
     return DiscoveryOutcome(
         cnpj=cnpj,
         domains_seen=len(candidates),
         crawl_requests_created=requests_created,
+        rf_contacts_saved=rf_contacts_saved,
     )
