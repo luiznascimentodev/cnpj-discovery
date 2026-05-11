@@ -11,6 +11,8 @@ from scheduler import (
     get_cursor,
     release_stale_locks,
     seed_active_targets,
+    seed_phase1_targets,
+    seed_phase2_targets,
 )
 
 
@@ -224,7 +226,7 @@ class TestClaimTargets:
                 priority=50,
             )
         ]
-        assert conn.fetch_calls[0][1] == ("worker-1", 120, 20)
+        assert conn.fetch_calls[0][1] == ("worker-1", 120, 20, None)
 
     @pytest.mark.asyncio
     async def test_uses_default_lease_and_batch_when_omitted(self):
@@ -233,7 +235,7 @@ class TestClaimTargets:
         targets = await claim_targets(FakePool(conn), worker_id="worker-1")
 
         assert targets == []
-        assert conn.fetch_calls[0][1] == ("worker-1", DEFAULT_LEASE_SECONDS, DEFAULT_CLAIM_BATCH)
+        assert conn.fetch_calls[0][1] == ("worker-1", DEFAULT_LEASE_SECONDS, DEFAULT_CLAIM_BATCH, None)
 
 
 class TestCompleteTarget:
@@ -282,3 +284,137 @@ class TestReleaseStaleLocks:
 class TestModuleConstants:
     def test_default_seed_batch_is_positive(self):
         assert DEFAULT_SEED_BATCH > 0
+
+
+class TestSeedPhase1:
+    @pytest.mark.asyncio
+    async def test_seeds_all_active_companies_no_email_filter(self):
+        """Phase 1 seeds ALL active companies — no missing-email/phone filter."""
+        rows_inserted = []
+
+        class FakeConn:
+            async def fetchrow(self, q, *a):
+                return None  # no cursor yet
+            async def fetch(self, q, *a):
+                return [
+                    {"cnpj_basico": "00000001", "cnpj_ordem": "0001", "cnpj_dv": "10"},
+                    {"cnpj_basico": "00000002", "cnpj_ordem": "0001", "cnpj_dv": "20"},
+                ]
+            async def executemany(self, q, records):
+                rows_inserted.extend(records)
+            async def execute(self, q, *a):
+                pass
+            def transaction(self):
+                return _FakeTx()
+
+        class _FakeTx:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): pass
+
+        class FakePool:
+            def acquire(self): return _Ctx(FakeConn())
+
+        class _Ctx:
+            def __init__(self, c): self._c = c
+            async def __aenter__(self): return self._c
+            async def __aexit__(self, *a): pass
+
+        n = await seed_phase1_targets(FakePool(), batch_size=100)
+        assert n == 2
+        reasons = [r[4] for r in rows_inserted]
+        assert all(r == "phase1_dns" for r in reasons)
+
+    @pytest.mark.asyncio
+    async def test_phase1_sql_has_no_email_phone_condition(self):
+        """_SQL_SELECT_PHASE1 must not contain email/telefone filter."""
+        from scheduler import _SQL_SELECT_PHASE1
+        assert "email" not in _SQL_SELECT_PHASE1.lower()
+        assert "telefone" not in _SQL_SELECT_PHASE1.lower()
+
+    @pytest.mark.asyncio
+    async def test_phase2_sql_filters_companies_without_domain(self):
+        """_SQL_SELECT_PHASE2 must reference company_domains with status filter."""
+        from scheduler import _SQL_SELECT_PHASE2
+        assert "company_domains" in _SQL_SELECT_PHASE2.lower()
+        assert "verified" in _SQL_SELECT_PHASE2.lower()
+        assert "candidate" in _SQL_SELECT_PHASE2.lower()
+        assert "not exists" in _SQL_SELECT_PHASE2.lower()
+
+    @pytest.mark.asyncio
+    async def test_seed_phase2_uses_phase2_reason(self):
+        """seed_phase2_targets seeds with reason='phase2_search'."""
+        rows_inserted = []
+
+        class FakeConn:
+            async def fetchrow(self, q, *a):
+                return None
+            async def fetch(self, q, *a):
+                return [
+                    {"cnpj_basico": "00000003", "cnpj_ordem": "0001", "cnpj_dv": "30"},
+                ]
+            async def executemany(self, q, records):
+                rows_inserted.extend(records)
+            async def execute(self, q, *a):
+                pass
+            def transaction(self):
+                return _FakeTx2()
+
+        class _FakeTx2:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): pass
+
+        class FakePool:
+            def acquire(self): return _Ctx(FakeConn())
+
+        class _Ctx:
+            def __init__(self, c): self._c = c
+            async def __aenter__(self): return self._c
+            async def __aexit__(self, *a): pass
+
+        n = await seed_phase2_targets(FakePool(), batch_size=100)
+        assert n == 1
+        assert rows_inserted[0][4] == "phase2_search"
+
+
+class TestClaimTargetsReasonFilter:
+    @pytest.mark.asyncio
+    async def test_claim_with_reason_passes_reason_to_sql(self):
+        """claim_targets(reason='phase1_dns') only claims matching targets."""
+        fetched_args = []
+
+        class FakeConn:
+            async def fetch(self, q, *a):
+                fetched_args.extend(a)
+                return []
+
+        class FakePool:
+            def acquire(self): return _Ctx(FakeConn())
+
+        class _Ctx:
+            def __init__(self, c): self._c = c
+            async def __aenter__(self): return self._c
+            async def __aexit__(self, *a): pass
+
+        await claim_targets(FakePool(), worker_id="w", batch_size=10, lease_seconds=60, reason="phase1_dns")
+        assert "phase1_dns" in fetched_args
+
+    @pytest.mark.asyncio
+    async def test_claim_without_reason_passes_none(self):
+        """claim_targets() without reason passes None (claims any target)."""
+        fetched_args = []
+
+        class FakeConn:
+            async def fetch(self, q, *a):
+                fetched_args.extend(a)
+                return []
+
+        class FakePool:
+            def acquire(self): return _Ctx(FakeConn())
+
+        class _Ctx:
+            def __init__(self, c): self._c = c
+            async def __aenter__(self): return self._c
+            async def __aexit__(self, *a): pass
+
+        await claim_targets(FakePool(), worker_id="w", batch_size=10, lease_seconds=60)
+        assert None in fetched_args

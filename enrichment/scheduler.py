@@ -57,6 +57,31 @@ _SQL_SELECT_NEW_ROWS = """
     LIMIT $4
 """
 
+_SQL_SELECT_PHASE1 = """
+    SELECT est.cnpj_basico, est.cnpj_ordem, est.cnpj_dv
+    FROM estabelecimentos est
+    WHERE est.situacao_cadastral = 2
+      AND (est.cnpj_basico, est.cnpj_ordem, est.cnpj_dv) > ($1, $2, $3)
+    ORDER BY est.cnpj_basico, est.cnpj_ordem, est.cnpj_dv
+    LIMIT $4
+"""
+
+_SQL_SELECT_PHASE2 = """
+    SELECT est.cnpj_basico, est.cnpj_ordem, est.cnpj_dv
+    FROM estabelecimentos est
+    WHERE est.situacao_cadastral = 2
+      AND (est.cnpj_basico, est.cnpj_ordem, est.cnpj_dv) > ($1, $2, $3)
+      AND NOT EXISTS (
+          SELECT 1 FROM paid_enrichment.company_domains cd
+          WHERE cd.cnpj_basico = est.cnpj_basico
+            AND cd.cnpj_ordem = est.cnpj_ordem
+            AND cd.cnpj_dv = est.cnpj_dv
+            AND cd.status IN ('verified', 'candidate')
+      )
+    ORDER BY est.cnpj_basico, est.cnpj_ordem, est.cnpj_dv
+    LIMIT $4
+"""
+
 _SQL_INSERT_TARGET = """
     INSERT INTO paid_enrichment.enrichment_targets (
         cnpj_basico, cnpj_ordem, cnpj_dv, priority, status, reason, next_run_at, updated_at
@@ -72,6 +97,7 @@ _SQL_CLAIM_TARGETS = """
         WHERE status IN ('pending', 'retry')
           AND next_run_at <= now()
           AND (locked_at IS NULL OR locked_at < now() - make_interval(secs => $2))
+          AND ($4::TEXT IS NULL OR reason = $4)
         ORDER BY priority DESC, next_run_at, id
         LIMIT $3
         FOR UPDATE SKIP LOCKED
@@ -143,22 +169,16 @@ async def get_cursor(pool, reason: str) -> CursorState:
     )
 
 
-async def seed_active_targets(
+async def _seed_with_query(
     pool,
+    sql: str,
     *,
-    reason: str = "missing_contacts",
-    priority: int = 50,
-    batch_size: int = DEFAULT_SEED_BATCH,
+    reason: str,
+    priority: int,
+    batch_size: int,
 ) -> int:
-    """Resume-aware: avança a partir do cursor persistido em `reason`.
-
-    Retorna o número de linhas RF lidas no lote (independente de quantos
-    targets foram efetivamente inseridos — `ON CONFLICT DO NOTHING` ignora
-    duplicatas mas o cursor sempre avança).
-    """
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
-
     async with pool.acquire() as conn:
         cursor_row = await conn.fetchrow(_SQL_GET_CURSOR, reason)
         if cursor_row:
@@ -168,13 +188,7 @@ async def seed_active_targets(
         else:
             last_basico, last_ordem, last_dv = "00000000", "0000", "00"
 
-        rows = await conn.fetch(
-            _SQL_SELECT_NEW_ROWS,
-            last_basico,
-            last_ordem,
-            last_dv,
-            batch_size,
-        )
+        rows = await conn.fetch(sql, last_basico, last_ordem, last_dv, batch_size)
         if not rows:
             return 0
 
@@ -196,12 +210,50 @@ async def seed_active_targets(
     return len(rows)
 
 
+async def seed_active_targets(
+    pool,
+    *,
+    reason: str = "missing_contacts",
+    priority: int = 50,
+    batch_size: int = DEFAULT_SEED_BATCH,
+) -> int:
+    """Backward-compat: seeds companies missing email or phone."""
+    return await _seed_with_query(
+        pool, _SQL_SELECT_NEW_ROWS, reason=reason, priority=priority, batch_size=batch_size
+    )
+
+
+async def seed_phase1_targets(
+    pool,
+    *,
+    priority: int = 60,
+    batch_size: int = 50_000,
+) -> int:
+    """Phase 1: seeds ALL active companies for DNS-only discovery."""
+    return await _seed_with_query(
+        pool, _SQL_SELECT_PHASE1, reason="phase1_dns", priority=priority, batch_size=batch_size
+    )
+
+
+async def seed_phase2_targets(
+    pool,
+    *,
+    priority: int = 50,
+    batch_size: int = 10_000,
+) -> int:
+    """Phase 2: seeds active companies with no verified/candidate domain."""
+    return await _seed_with_query(
+        pool, _SQL_SELECT_PHASE2, reason="phase2_search", priority=priority, batch_size=batch_size
+    )
+
+
 async def claim_targets(
     pool,
     *,
     worker_id: str,
     batch_size: int = DEFAULT_CLAIM_BATCH,
     lease_seconds: int = DEFAULT_LEASE_SECONDS,
+    reason: str | None = None,
 ) -> list[ClaimedTarget]:
     if not worker_id:
         raise ValueError("worker_id is required")
@@ -213,6 +265,7 @@ async def claim_targets(
             worker_id,
             lease_seconds,
             batch_size,
+            reason,
         )
     return [
         ClaimedTarget(
