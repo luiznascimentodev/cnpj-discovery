@@ -1,5 +1,5 @@
 import pytest
-from discovery.search_queries import SearchQuery, build_search_queries, format_cnpj14
+from discovery.search_queries import SearchQuery, build_search_queries, build_search_queries_mei, format_cnpj14
 
 
 class TestFormatCnpj14:
@@ -92,3 +92,56 @@ class TestBuildSearchQueries:
         )
         bonuses = [q.confidence_bonus for q in queries]
         assert bonuses == sorted(bonuses, reverse=True)
+
+
+class TestBuildSearchQueriesMei:
+    def test_mei_queries_include_partner_name(self):
+        queries = build_search_queries_mei(
+            cnpj14="12345678000190",
+            legal_name="JOAO DA SILVA 12345678000190",
+            partner_names=["João da Silva"],
+            city="São Paulo",
+        )
+        texts = [q.text for q in queries]
+        assert any("João da Silva" in t for t in texts)
+
+    def test_mei_queries_include_instagram_hint(self):
+        queries = build_search_queries_mei(
+            cnpj14="12345678000190",
+            legal_name="MARIA SOUZA MEI",
+            partner_names=["Maria Souza"],
+            city="Campinas",
+        )
+        texts = [q.text for q in queries]
+        assert any("instagram" in t.lower() or "whatsapp" in t.lower() for t in texts)
+
+    def test_mei_always_returns_at_least_one_query(self):
+        queries = build_search_queries_mei(
+            cnpj14="12345678000190",
+            legal_name=None,
+            partner_names=[],
+            city=None,
+        )
+        assert len(queries) >= 1
+
+    def test_mei_queries_ordered_by_confidence_bonus_desc(self):
+        queries = build_search_queries_mei(
+            cnpj14="12345678000190",
+            legal_name="JOAO SILVA MEI",
+            partner_names=["João Silva"],
+            city="Curitiba",
+        )
+        bonuses = [q.confidence_bonus for q in queries]
+        assert bonuses == sorted(bonuses, reverse=True)
+
+    def test_mei_cnpj_query_always_present(self):
+        queries = build_search_queries_mei(
+            cnpj14="12345678000190",
+            legal_name=None,
+            partner_names=["Pedro Alves"],
+            city="Recife",
+        )
+        reasons = [q.reason for q in queries]
+        assert "cnpj_exact" in reasons
+        # Partner+instagram query must also be present
+        assert any("mei_partner_instagram" in r for r in reasons)

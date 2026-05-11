@@ -85,3 +85,38 @@ def build_search_queries(
                 _add(f'"{name}" "{base}"', 5, "partner_name")
 
     return sorted(queries, key=lambda q: -q.confidence_bonus)
+
+
+def build_search_queries_mei(
+    cnpj14: str,
+    legal_name: str | None,
+    partner_names: list[str],
+    city: str | None,
+) -> list[SearchQuery]:
+    """Gera queries otimizadas para MEI — prioriza sócio + Instagram/WhatsApp."""
+    queries: list[SearchQuery] = []
+    seen: set[str] = set()
+
+    def _add(text: str, bonus: int, reason: str) -> None:
+        key = _normalize_for_dedup(text)
+        if key not in seen:
+            seen.add(key)
+            queries.append(SearchQuery(text=text, confidence_bonus=bonus, reason=reason))
+
+    for partner in partner_names[:1]:
+        name = partner.strip()
+        if len(name) >= 5:
+            if city:
+                _add(f'"{name}" {city} instagram', 20, "mei_partner_instagram")
+            _add(f'"{name}" instagram', 15, "mei_partner_instagram")
+            _add(f'"{name}" whatsapp', 10, "mei_partner_whatsapp")
+
+    formatted = format_cnpj14(cnpj14)
+    _add(f'"{formatted}"', 25, "cnpj_exact")
+
+    if legal_name:
+        short = _strip_legal_suffixes(legal_name)
+        if len(short) >= 4 and city:
+            _add(f'"{short}" {city}', 8, "mei_legal_city")
+
+    return sorted(queries, key=lambda q: -q.confidence_bonus)

@@ -10,6 +10,7 @@ from discovery.pipeline import (
     _SQL_FETCH_ESTABELECIMENTO,
     _SQL_FETCH_MATRIX_DOMAIN,
     _SQL_FETCH_SOCIOS,
+    _SQL_IS_MEI,
     _SQL_UPSERT_RF_EMAIL_CONTACT,
     _initial_confidence,
     _initial_status,
@@ -899,3 +900,143 @@ class TestMatrixFilialResolution:
         # source must NOT be "matrix_resolution" — it came from real discovery
         for call in domain_upsert_calls:
             assert call[1][5] != "matrix_resolution"
+
+
+_MEI_ROW = {
+    **_FILIAL_ROW,
+    "razao_social": "JOAO DA SILVA 12345678000190",
+    "nome_fantasia": None,
+    "email": None,
+    "cnpj_ordem": "0001",
+}
+
+
+class FakeConnectionMei:
+    """Dispatches fetchrow based on query: estabelecimento, simples, or matrix."""
+
+    def __init__(self, estabelecimento_row, mei_row, matrix_domain_row=None, fetchval_result=None):
+        self._estabelecimento_row = estabelecimento_row
+        self._mei_row = mei_row
+        self._matrix_domain_row = matrix_domain_row
+        self._fetchval_result = fetchval_result
+        self.execute_calls = []
+        self.fetch_calls = []
+        self.fetchrow_calls = []
+
+    async def fetchrow(self, query, *args):
+        self.fetchrow_calls.append((query, args))
+        if "simples" in query:
+            return self._mei_row
+        if "company_domains" in query:
+            return self._matrix_domain_row
+        return self._estabelecimento_row
+
+    async def fetchval(self, query, *args):
+        return self._fetchval_result
+
+    async def fetch(self, query, *args):
+        self.fetch_calls.append((query, args))
+        return []
+
+    async def execute(self, query, *args):
+        self.execute_calls.append((query, args))
+
+
+class TestMeiDetection:
+    def test_sql_is_mei_queries_simples_table(self):
+        assert "simples" in _SQL_IS_MEI
+        assert "opcao_mei" in _SQL_IS_MEI
+
+    @pytest.mark.asyncio
+    async def test_mei_skips_brand_slug_discovery(self):
+        """MEI company (opcao_mei='S') should NOT call discover_domain_candidates."""
+        from unittest.mock import patch
+
+        conn = FakeConnectionMei(
+            estabelecimento_row=_MEI_ROW,
+            mei_row={"opcao_mei": "S"},
+        )
+        ext = ExternalSearchClient(brasilapi_enabled=False, brave_api_key="")
+        ext.enrich_candidates = AsyncMock(return_value=[])
+
+        with patch("discovery.pipeline.discover_domain_candidates") as mock_discover:
+            async with _httpx_client(_weak_ok_handler) as client:
+                await process_target(
+                    FakePool(conn),
+                    cnpj_basico="12345678",
+                    cnpj_ordem="0001",
+                    cnpj_dv="90",
+                    client=client,
+                    external_search=ext,
+                )
+
+        mock_discover.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_mei_external_search_still_runs(self):
+        """MEI company should still use external_search (social-focused queries)."""
+        conn = FakeConnectionMei(
+            estabelecimento_row=_MEI_ROW,
+            mei_row={"opcao_mei": "S"},
+            fetchval_result=None,
+        )
+        ext = ExternalSearchClient(brasilapi_enabled=False, brave_api_key="")
+        ext.enrich_candidates = AsyncMock(return_value=[])
+
+        async with _httpx_client(_weak_ok_handler) as client:
+            await process_target(
+                FakePool(conn),
+                cnpj_basico="12345678",
+                cnpj_ordem="0001",
+                cnpj_dv="90",
+                client=client,
+                external_search=ext,
+            )
+
+        ext.enrich_candidates.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_non_mei_uses_brand_slug_discovery(self):
+        """Non-MEI company (opcao_mei='N') should use discover_domain_candidates."""
+        from unittest.mock import patch
+
+        conn = FakeConnectionMei(
+            estabelecimento_row={**_MEI_ROW, "email": "contato@acme.com.br"},
+            mei_row={"opcao_mei": "N"},
+        )
+
+        with patch("discovery.pipeline.discover_domain_candidates") as mock_discover:
+            mock_discover.return_value = []
+            async with _httpx_client(_weak_ok_handler) as client:
+                await process_target(
+                    FakePool(conn),
+                    cnpj_basico="12345678",
+                    cnpj_ordem="0001",
+                    cnpj_dv="90",
+                    client=client,
+                )
+
+        mock_discover.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_mei_not_in_simples_uses_brand_slug(self):
+        """Company not in simples table (fetchrow returns None) should use brand_slug."""
+        from unittest.mock import patch
+
+        conn = FakeConnectionMei(
+            estabelecimento_row={**_MEI_ROW, "email": "contato@acme.com.br"},
+            mei_row=None,  # not in simples table
+        )
+
+        with patch("discovery.pipeline.discover_domain_candidates") as mock_discover:
+            mock_discover.return_value = []
+            async with _httpx_client(_weak_ok_handler) as client:
+                await process_target(
+                    FakePool(conn),
+                    cnpj_basico="12345678",
+                    cnpj_ordem="0001",
+                    cnpj_dv="90",
+                    client=client,
+                )
+
+        mock_discover.assert_called_once()

@@ -112,6 +112,10 @@ _SQL_FETCH_MATRIX_DOMAIN = """
     LIMIT 1
 """
 
+_SQL_IS_MEI = """
+    SELECT opcao_mei FROM simples WHERE cnpj_basico = $1
+"""
+
 
 @dataclass(frozen=True)
 class DiscoveryOutcome:
@@ -249,68 +253,77 @@ async def process_target(
                 rf_contacts_saved=rf_contacts_saved,
             )
 
-    candidates = discover_domain_candidates(
-        legal_name=_row_value(row, "razao_social"),
-        trade_name=_row_value(row, "nome_fantasia"),
-        rf_email=rf_email,
-    )
-
-    if not candidates:
-        return DiscoveryOutcome(
-            cnpj=cnpj, domains_seen=0, crawl_requests_created=0,
-            rf_contacts_saved=rf_contacts_saved,
-        )
+    # MEI companies (simples.opcao_mei='S') skip brand_slug — social search only
+    async with pool.acquire() as conn:
+        simples_row = await conn.fetchrow(_SQL_IS_MEI, cnpj_basico)
+    is_mei = bool(simples_row and simples_row.get("opcao_mei") == "S")
 
     requests_created = 0
-    async with pool.acquire() as conn:
-        for candidate in candidates:
-            probe = await probe_domain(candidate.domain, client=client)
-            score = score_domain_evidence(
-                probe.body,
-                domain=candidate.domain,
-                cnpj=cnpj,
-                legal_name=_row_value(row, "razao_social"),
-                fantasy_name=_row_value(row, "nome_fantasia"),
-                rf_email_domain=_rf_email_domain(rf_email),
-                rf_phone_normalized=rf_phone.normalized_value if rf_phone else None,
-                cep=_row_value(row, "cep"),
-                city=_row_value(row, "municipio_descricao"),
-                uf=_row_value(row, "uf"),
-                bairro=_row_value(row, "bairro"),
-                logradouro=_row_value(row, "logradouro"),
-                numero=_row_value(row, "numero"),
-                cnae_description=_row_value(row, "cnae_descricao"),
-                partner_names=partner_names,
-                is_parked=probe.parked,
+    candidates: list[DomainCandidate] = []
+
+    if not is_mei:
+        candidates = discover_domain_candidates(
+            legal_name=_row_value(row, "razao_social"),
+            trade_name=_row_value(row, "nome_fantasia"),
+            rf_email=rf_email,
+        )
+
+        if not candidates:
+            return DiscoveryOutcome(
+                cnpj=cnpj, domains_seen=0, crawl_requests_created=0,
+                rf_contacts_saved=rf_contacts_saved,
             )
 
-            homepage_url = probe.final_url if probe.ok else candidate.homepage_url
-            await conn.execute(
-                _SQL_UPSERT_DOMAIN,
-                cnpj_basico,
-                cnpj_ordem,
-                cnpj_dv,
-                candidate.domain,
-                homepage_url,
-                candidate.source,
-                _initial_confidence(candidate, probe, score),
-                _initial_status(probe, score),
-            )
+    if candidates:
+        async with pool.acquire() as conn:
+            for candidate in candidates:
+                probe = await probe_domain(candidate.domain, client=client)
+                score = score_domain_evidence(
+                    probe.body,
+                    domain=candidate.domain,
+                    cnpj=cnpj,
+                    legal_name=_row_value(row, "razao_social"),
+                    fantasy_name=_row_value(row, "nome_fantasia"),
+                    rf_email_domain=_rf_email_domain(rf_email),
+                    rf_phone_normalized=rf_phone.normalized_value if rf_phone else None,
+                    cep=_row_value(row, "cep"),
+                    city=_row_value(row, "municipio_descricao"),
+                    uf=_row_value(row, "uf"),
+                    bairro=_row_value(row, "bairro"),
+                    logradouro=_row_value(row, "logradouro"),
+                    numero=_row_value(row, "numero"),
+                    cnae_description=_row_value(row, "cnae_descricao"),
+                    partner_names=partner_names,
+                    is_parked=probe.parked,
+                )
 
-            if probe.ok and not probe.parked and _should_enqueue_crawl(score):
-                for path in PRIORITY_PATHS:
-                    url = f"https://{candidate.domain}{path}"
-                    await conn.execute(
-                        _SQL_INSERT_CRAWL_REQUEST,
-                        cnpj_basico,
-                        cnpj_ordem,
-                        cnpj_dv,
-                        url,
-                        candidate.domain,
-                        candidate.source,
-                        candidate.confidence,
-                    )
-                    requests_created += 1
+                homepage_url = probe.final_url if probe.ok else candidate.homepage_url
+                await conn.execute(
+                    _SQL_UPSERT_DOMAIN,
+                    cnpj_basico,
+                    cnpj_ordem,
+                    cnpj_dv,
+                    candidate.domain,
+                    homepage_url,
+                    candidate.source,
+                    _initial_confidence(candidate, probe, score),
+                    _initial_status(probe, score),
+                )
+
+                if probe.ok and not probe.parked and _should_enqueue_crawl(score):
+                    for path in PRIORITY_PATHS:
+                        url = f"https://{candidate.domain}{path}"
+                        await conn.execute(
+                            _SQL_INSERT_CRAWL_REQUEST,
+                            cnpj_basico,
+                            cnpj_ordem,
+                            cnpj_dv,
+                            url,
+                            candidate.domain,
+                            candidate.source,
+                            candidate.confidence,
+                        )
+                        requests_created += 1
 
     if external_search is not None:
         async with pool.acquire() as conn:
