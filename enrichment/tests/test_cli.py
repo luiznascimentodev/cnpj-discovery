@@ -84,7 +84,7 @@ class TestDoFunctions:
             ),
         ]
 
-        async def discover_side_effect(pool, *, cnpj_basico, cnpj_ordem, cnpj_dv, client):
+        async def discover_side_effect(pool, *, cnpj_basico, cnpj_ordem, cnpj_dv, client, external_search=None):
             if cnpj_basico == "22222222":
                 raise RuntimeError("boom")
             return DiscoveryOutcome(cnpj="x", domains_seen=2, crawl_requests_created=5)

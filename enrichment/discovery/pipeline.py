@@ -100,7 +100,7 @@ _SQL_FETCH_SOCIOS = """
     SELECT nome_socio
     FROM socios
     WHERE cnpj_basico = $1
-    ORDER BY data_entrada_sociedade DESC NULLS LAST
+    ORDER BY data_entrada DESC NULLS LAST
     LIMIT 5
 """
 

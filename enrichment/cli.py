@@ -38,6 +38,8 @@ from crawler.playwright_runner import PlaywrightRunStats, run_playwright_batch
 from crawler.queue import release_stale_requests
 from crawler.runner import run_batch as run_crawl_batch
 from database import close_pool, create_pool
+from config import settings
+from discovery.external_search import ExternalSearchClient
 from discovery.pipeline import process_target as discover_target
 from discovery.website_probe import DEFAULT_USER_AGENT, make_default_client
 from resolver.domain_resolver import resolve_domain_contacts
@@ -82,6 +84,7 @@ async def do_discovery(
     batch_size: int,
     lease_seconds: int,
     concurrency: int = DISCOVERY_CONCURRENCY,
+    external_search=None,
 ) -> tuple[int, int]:
     targets = await claim_targets(
         pool,
@@ -103,6 +106,7 @@ async def do_discovery(
                     cnpj_ordem=target.cnpj_ordem,
                     cnpj_dv=target.cnpj_dv,
                     client=client,
+                    external_search=external_search,
                 )
                 await complete_target(pool, target_id=target.id, status="done")
                 return outcome.crawl_requests_created
@@ -146,6 +150,19 @@ async def do_release_stale(pool, *, lease_seconds: int) -> int:
     return targets + requests
 
 
+def _build_external_search() -> ExternalSearchClient:
+    return ExternalSearchClient(
+        brasilapi_enabled=settings.brasilapi_enabled,
+        brasilapi_base_url=settings.brasilapi_base_url,
+        brave_api_key=settings.brave_search_api_key,
+        brave_base_url=settings.brave_search_base_url,
+        google_cse_api_key=settings.google_cse_api_key,
+        google_cse_cx=settings.google_cse_cx,
+        google_cse_base_url=settings.google_cse_base_url,
+        searxng_url=settings.searxng_url,
+    )
+
+
 async def do_one_loop(pool, client, args) -> TickStats:
     seeded = await do_seed(
         pool,
@@ -159,6 +176,7 @@ async def do_one_loop(pool, client, args) -> TickStats:
         worker_id=args.worker_id,
         batch_size=args.discovery_batch_size,
         lease_seconds=args.lease_seconds,
+        external_search=_build_external_search(),
     )
     crawler_done, contacts = await do_crawler(
         pool,
