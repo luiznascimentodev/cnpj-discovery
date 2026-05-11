@@ -63,6 +63,14 @@ class TestSettings:
         settings = Settings(searxng_url="http://searxng:8080")
         assert settings.searxng_url == "http://searxng:8080"
 
+    def test_discovery_concurrency_default(self):
+        settings = Settings()
+        assert settings.discovery_concurrency == 25
+
+    def test_discovery_concurrency_accepts_custom_value(self):
+        settings = Settings(discovery_concurrency=10)
+        assert settings.discovery_concurrency == 10
+
 
 class TestDatabase:
     @pytest.mark.asyncio

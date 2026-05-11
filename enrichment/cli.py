@@ -24,8 +24,6 @@ import os
 import socket
 from dataclasses import dataclass
 
-DISCOVERY_CONCURRENCY = 10  # parallel HTTP probes per worker instance
-
 from loguru import logger
 
 from crawler.domain_queue import (
@@ -40,6 +38,8 @@ from crawler.runner import run_batch as run_crawl_batch
 from database import close_pool, create_pool
 from config import settings
 from discovery.external_search import ExternalSearchClient
+
+DISCOVERY_CONCURRENCY = settings.discovery_concurrency
 from discovery.pipeline import process_target as discover_target
 from discovery.website_probe import DEFAULT_USER_AGENT, make_default_client
 from resolver.domain_resolver import resolve_domain_contacts

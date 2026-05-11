@@ -43,7 +43,7 @@ services:
       - -c
       - max_parallel_workers=12
       - -c
-      - max_connections=200
+      - max_connections=300
       - -c
       - shared_preload_libraries=pg_stat_statements
       - -c
@@ -167,20 +167,25 @@ services:
       BRASILAPI_ENABLED: "${BRASILAPI_ENABLED:-true}"
       BRAVE_SEARCH_API_KEY: "${BRAVE_SEARCH_API_KEY:-}"
       SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
+      DISCOVERY_CONCURRENCY: "25"
     command:
       - python
       - cli.py
       - worker
+      - --phase
+      - "1"
       - --interval
-      - "${ENRICHMENT_WORKER_INTERVAL:-30}"
+      - "5"
       - --seed-batch-size
-      - "${ENRICHMENT_SEED_BATCH:-10000}"
+      - "${ENRICHMENT_SEED_BATCH:-50000}"
       - --discovery-batch-size
-      - "${ENRICHMENT_DISCOVERY_BATCH:-50}"
+      - "${ENRICHMENT_DISCOVERY_BATCH:-500}"
       - --crawl-batch-size
       - "${ENRICHMENT_CRAWL_BATCH:-20}"
       - --lease-seconds
       - "${ENRICHMENT_LEASE_SECONDS:-600}"
+    deploy:
+      replicas: 20
     depends_on:
       postgres:
         condition: service_healthy
@@ -196,6 +201,52 @@ services:
     restart: unless-stopped
     profiles:
       - worker
+
+  enrichment-worker-p2:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      BRASILAPI_ENABLED: "${BRASILAPI_ENABLED:-true}"
+      SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
+      DISCOVERY_CONCURRENCY: "10"
+    command:
+      - python
+      - cli.py
+      - worker
+      - --phase
+      - "2"
+      - --interval
+      - "30"
+      - --seed-batch-size
+      - "${ENRICHMENT_SEED_BATCH_P2:-10000}"
+      - --discovery-batch-size
+      - "${ENRICHMENT_DISCOVERY_BATCH_P2:-50}"
+      - --crawl-batch-size
+      - "${ENRICHMENT_CRAWL_BATCH:-20}"
+      - --lease-seconds
+      - "${ENRICHMENT_LEASE_SECONDS:-600}"
+    deploy:
+      replicas: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'cli.py worker'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - worker-p2
 
   # Domain-first crawler worker (Phase 4+ of scale plan)
   # Scale independently: docker compose up -d --scale domain-crawler-worker=4

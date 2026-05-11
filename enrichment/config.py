@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     google_cse_cx: str = ""
     google_cse_base_url: str = "https://www.googleapis.com/customsearch/v1"
     searxng_url: str = ""
+    discovery_concurrency: int = 25
 
     @property
     def google_cse_enabled(self) -> bool:
