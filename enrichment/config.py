@@ -22,6 +22,20 @@ class Settings(BaseSettings):
 
     environment: str = "development"
 
+    domain_first_crawler_enabled: bool = False
+
+    brasilapi_enabled: bool = True
+    brasilapi_base_url: str = "https://brasilapi.com.br/api"
+    brave_search_api_key: str = ""
+    brave_search_base_url: str = "https://api.search.brave.com"
+    google_cse_api_key: str = ""
+    google_cse_cx: str = ""
+    google_cse_base_url: str = "https://www.googleapis.com/customsearch/v1"
+
+    @property
+    def google_cse_enabled(self) -> bool:
+        return bool(self.google_cse_api_key and self.google_cse_cx)
+
     @property
     def dsn(self) -> str:
         return (
