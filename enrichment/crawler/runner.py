@@ -7,11 +7,13 @@ nunca recomeçam do zero.
 
 Backoff: 60s · 2^(attempts-1), com teto de 1h.
 """
+import re as _re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 
 import httpx
+from loguru import logger
 
 from crawler.queue import (
     ClaimedCrawlRequest,
@@ -62,8 +64,32 @@ _SQL_FETCH_TRUSTED_DOMAINS = """
     SELECT domain
     FROM paid_enrichment.company_domains
     WHERE cnpj_basico = $1 AND cnpj_ordem = $2 AND cnpj_dv = $3
-      AND status IN ('verified', 'candidate')
+      AND status = 'verified'
 """
+
+_SQL_ENQUEUE_PLAYWRIGHT = """
+    INSERT INTO paid_enrichment.domain_crawl_jobs
+        (domain, url, crawl_profile, source, priority, status)
+    VALUES ($1, $2, 'playwright_contact_probe', 'js_heavy_auto', 60, 'pending')
+    ON CONFLICT (domain, url, crawl_profile) DO UPDATE
+        SET priority = GREATEST(domain_crawl_jobs.priority, EXCLUDED.priority),
+            updated_at = now()
+"""
+
+_SCRIPT_TAG_RE = _re.compile(r"<script[\s>]", _re.IGNORECASE)
+_JS_HEAVY_THRESHOLD = 10
+
+
+def _count_script_tags(html: str) -> int:
+    return len(_SCRIPT_TAG_RE.findall(html))
+
+
+def _is_js_heavy(html: str) -> bool:
+    return _count_script_tags(html) > _JS_HEAVY_THRESHOLD
+
+
+async def _enqueue_playwright_if_needed(conn, domain: str) -> None:
+    await conn.execute(_SQL_ENQUEUE_PLAYWRIGHT, domain, f"https://{domain}/")
 
 
 @dataclass(frozen=True)
@@ -97,6 +123,10 @@ def extract_title(body: str) -> str | None:
     return body[open_idx + 7 : close_idx].strip()[:500] or None
 
 
+def clean_postgres_text(value: str) -> str:
+    return value.replace("\x00", "")
+
+
 async def _trusted_domains(conn, cnpj_basico, cnpj_ordem, cnpj_dv) -> set[str]:
     rows = await conn.fetch(
         _SQL_FETCH_TRUSTED_DOMAINS, cnpj_basico, cnpj_ordem, cnpj_dv
@@ -125,8 +155,9 @@ async def _persist_success(
     content_hash: str,
 ) -> int:
     """Insert crawl_pages, run extraction+resolution+publisher in a transaction."""
-    title = extract_title(body)
-    excerpt = body[:2000]
+    clean_body = clean_postgres_text(body)
+    title = extract_title(clean_body)
+    excerpt = clean_body[:2000]
     async with pool.acquire() as conn:
         async with conn.transaction():
             page_id = await conn.fetchval(
@@ -147,7 +178,7 @@ async def _persist_success(
             blacklist = await _baseline_blacklist(
                 conn, request.cnpj_basico, request.cnpj_ordem, request.cnpj_dv
             )
-            extracted = extract_contacts_from_html(body, source_url=request.url)
+            extracted = extract_contacts_from_html(clean_body, source_url=request.url)
             resolved = resolve_contacts(
                 extracted,
                 verified_domains=trusted,
@@ -161,6 +192,8 @@ async def _persist_success(
                 crawl_page_id=page_id,
                 contacts=resolved,
             )
+            if _is_js_heavy(clean_body) and len(resolved) < 2:
+                await _enqueue_playwright_if_needed(conn, request.domain)
             return stats.contacts_published
 
 
@@ -183,14 +216,36 @@ async def _handle_failure(
         last_fetch_at=datetime.now(timezone.utc),
     )
     if request.attempts >= MAX_ATTEMPTS:
+        logger.error(
+            "crawler_request_failed_terminal id={} domain={} url={} attempts={} error={} host_failures={} blocked_until={}",
+            request.id,
+            request.domain,
+            request.url,
+            request.attempts,
+            error,
+            failures,
+            blocked_until,
+        )
         await mark_request_terminal(
             pool, request.id, status="error", last_error=error
         )
         return
+    retry_in_seconds = retry_delay(request.attempts)
+    logger.warning(
+        "crawler_request_retry id={} domain={} url={} attempts={} retry_in_seconds={} error={} host_failures={} blocked_until={}",
+        request.id,
+        request.domain,
+        request.url,
+        request.attempts,
+        retry_in_seconds,
+        error,
+        failures,
+        blocked_until,
+    )
     await mark_request_retry(
         pool,
         request.id,
-        retry_in_seconds=retry_delay(request.attempts),
+        retry_in_seconds=retry_in_seconds,
         last_error=error,
     )
 
@@ -206,14 +261,35 @@ async def process_request(
     """Returns (outcome, contacts_published) where outcome is one of
     'blocked', 'retried', 'errored', 'done'."""
     domain = request.domain
+    logger.info(
+        "crawler_request_start id={} domain={} url={} attempt={} source={} depth={}",
+        request.id,
+        request.domain,
+        request.url,
+        request.attempts,
+        request.source,
+        request.depth,
+    )
 
     rules = robots_cache.get(domain)
     if rules is None:
         rules = await fetch_robots(domain, client=client, user_agent=user_agent)
         robots_cache[domain] = rules
         await persist_host_robots(pool, rules)
+        logger.info(
+            "crawler_robots_checked domain={} status={} crawl_delay={}",
+            domain,
+            rules.fetched_status,
+            rules.crawl_delay,
+        )
 
     if not rules.can_fetch(request.url, user_agent):
+        logger.warning(
+            "crawler_request_blocked id={} domain={} url={} reason=robots_disallow",
+            request.id,
+            request.domain,
+            request.url,
+        )
         await mark_request_terminal(
             pool, request.id, status="blocked", last_error="robots_disallow"
         )
@@ -223,6 +299,14 @@ async def process_request(
     now = datetime.now(timezone.utc)
     if host_state and host_state.blocked_until and host_state.blocked_until > now:
         delay = max(int((host_state.blocked_until - now).total_seconds()), 1)
+        logger.warning(
+            "crawler_request_requeued id={} domain={} url={} reason=host_blocked retry_in_seconds={} blocked_until={}",
+            request.id,
+            request.domain,
+            request.url,
+            delay,
+            host_state.blocked_until,
+        )
         await mark_request_retry(
             pool, request.id, retry_in_seconds=delay, last_error="host_blocked"
         )
@@ -237,6 +321,13 @@ async def process_request(
 
     status_code = response.status_code
     if status_code in BLOCKED_HTTP_STATUSES:
+        logger.warning(
+            "crawler_request_blocked id={} domain={} url={} reason=http_{}",
+            request.id,
+            request.domain,
+            request.url,
+            status_code,
+        )
         await mark_request_terminal(
             pool, request.id, status="blocked", last_error=f"http_{status_code}"
         )
@@ -248,6 +339,13 @@ async def process_request(
         return outcome, 0
 
     if status_code >= 400:
+        logger.error(
+            "crawler_request_error id={} domain={} url={} status_code={}",
+            request.id,
+            request.domain,
+            request.url,
+            status_code,
+        )
         await mark_request_terminal(
             pool, request.id, status="error", last_error=f"http_{status_code}"
         )
@@ -260,6 +358,16 @@ async def process_request(
     )
     await mark_request_done(pool, request.id, content_hash)
     await reset_host_failures(pool, request.domain)
+    logger.info(
+        "crawler_request_done id={} domain={} url={} status_code={} bytes={} content_hash={} contacts_published={}",
+        request.id,
+        request.domain,
+        request.url,
+        status_code,
+        len(response.content),
+        content_hash[:12],
+        contacts_published,
+    )
     return "done", contacts_published
 
 
@@ -279,8 +387,15 @@ async def run_batch(
         lease_seconds=lease_seconds,
     )
     if not requests:
+        logger.info("crawler_batch_empty worker={} batch_size={}", worker_id, batch_size)
         return RunStats(requests_claimed=0)
 
+    logger.info(
+        "crawler_batch_start worker={} claimed={} lease_seconds={}",
+        worker_id,
+        len(requests),
+        lease_seconds,
+    )
     robots_cache: dict[str, RobotsRules] = {}
     counters: dict[str, int] = {
         "done": 0,
@@ -301,7 +416,7 @@ async def run_batch(
         counters[outcome] += 1
         contacts_published += contacts
 
-    return RunStats(
+    stats = RunStats(
         requests_claimed=len(requests),
         pages_fetched=counters["done"],
         contacts_published=contacts_published,
@@ -310,3 +425,14 @@ async def run_batch(
         requests_blocked=counters["blocked"],
         requests_errored=counters["errored"],
     )
+    logger.info(
+        "crawler_batch_done worker={} claimed={} done={} retried={} blocked={} errored={} contacts_published={}",
+        worker_id,
+        stats.requests_claimed,
+        stats.requests_done,
+        stats.requests_retried,
+        stats.requests_blocked,
+        stats.requests_errored,
+        stats.contacts_published,
+    )
+    return stats

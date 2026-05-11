@@ -13,6 +13,9 @@ from crawler.runner import (
     RETRY_BASE_SECONDS,
     RETRY_MAX_SECONDS,
     RunStats,
+    _count_script_tags,
+    _is_js_heavy,
+    clean_postgres_text,
     extract_title,
     hash_body,
     process_request,
@@ -142,6 +145,9 @@ class TestHelpers:
 
     def test_extract_title_returns_none_when_empty(self):
         assert extract_title("<html><title>   </title></html>") is None
+
+    def test_clean_postgres_text_removes_nul_bytes(self):
+        assert clean_postgres_text("a\x00b") == "ab"
 
 
 # ---------- process_request ----------
@@ -480,3 +486,141 @@ class TestModuleConstants:
 
     def test_host_block_duration_is_set(self):
         assert HOST_BLOCK_DURATION.total_seconds() > 0
+
+
+class TestJsHeavyDetection:
+    def test_counts_script_tags_in_html(self):
+        html = "<html><head>" + "<script src='a.js'></script>" * 12 + "</head><body></body></html>"
+        assert _count_script_tags(html) == 12
+
+    def test_counts_zero_scripts(self):
+        html = "<html><body><p>Texto</p></body></html>"
+        assert _count_script_tags(html) == 0
+
+    def test_is_js_heavy_true_when_over_threshold(self):
+        html = "<script>" * 11
+        assert _is_js_heavy(html) is True
+
+    def test_is_js_heavy_false_when_under_threshold(self):
+        html = "<script>" * 5
+        assert _is_js_heavy(html) is False
+
+    def test_is_js_heavy_false_at_exact_threshold(self):
+        html = "<script>" * 10
+        assert _is_js_heavy(html) is False
+
+    @pytest.mark.asyncio
+    async def test_enqueues_playwright_for_js_heavy_page_with_no_contacts(self):
+        """JS-heavy page with 0 contacts should trigger playwright enqueue."""
+        scripts = "<script src='x.js'></script>" * 11
+        body = f"<html><head>{scripts}</head><body>No contacts here</body></html>"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=body, headers={"content-type": "text/html"})
+
+        conn = FakeConnection(
+            fetchrow_results=[
+                None,  # get_host_state
+                None,  # _baseline_blacklist (no RF data)
+            ],
+            fetch_results=[
+                [],  # _trusted_domains
+            ],
+            fetchval_results=[
+                999,  # crawl_pages page id
+            ],
+        )
+        rules = RobotsRules("acme.com.br", "", None, 200)
+
+        async with _client(handler) as client:
+            outcome, _ = await process_request(
+                FakePool(conn),
+                _request(),
+                client=client,
+                user_agent="Bot",
+                robots_cache={"acme.com.br": rules},
+            )
+
+        assert outcome == "done"
+        playwright_calls = [
+            c for c in conn.execute_calls if "playwright_contact_probe" in c[0]
+        ]
+        assert len(playwright_calls) == 1
+        assert playwright_calls[0][1][0] == "acme.com.br"
+        assert playwright_calls[0][1][1] == "https://acme.com.br/"
+
+    @pytest.mark.asyncio
+    async def test_does_not_enqueue_playwright_for_light_page(self):
+        """Non-JS-heavy page should NOT trigger playwright enqueue."""
+        body = "<html><body>Plain page</body></html>"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=body, headers={"content-type": "text/html"})
+
+        conn = FakeConnection(
+            fetchrow_results=[
+                None,  # get_host_state
+                None,  # _baseline_blacklist
+            ],
+            fetch_results=[[]],
+            fetchval_results=[999],
+        )
+        rules = RobotsRules("acme.com.br", "", None, 200)
+
+        async with _client(handler) as client:
+            await process_request(
+                FakePool(conn),
+                _request(),
+                client=client,
+                user_agent="Bot",
+                robots_cache={"acme.com.br": rules},
+            )
+
+        playwright_calls = [
+            c for c in conn.execute_calls if "playwright_contact_probe" in c[0]
+        ]
+        assert playwright_calls == []
+
+    @pytest.mark.asyncio
+    async def test_does_not_enqueue_playwright_when_contacts_found(self):
+        """JS-heavy page with 2+ contacts should NOT trigger playwright enqueue."""
+        scripts = "<script src='x.js'></script>" * 11
+        body = (
+            f"<html><head>{scripts}</head><body>"
+            '<a href="mailto:a@acme.com.br">A</a>'
+            '<a href="mailto:b@acme.com.br">B</a>'
+            "</body></html>"
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=body, headers={"content-type": "text/html"})
+
+        conn = FakeConnection(
+            fetchrow_results=[
+                None,  # get_host_state
+                None,  # _baseline_blacklist
+            ],
+            fetch_results=[
+                [{"domain": "acme.com.br"}],  # _trusted_domains
+            ],
+            fetchval_results=[
+                999,  # page id
+                501,  # evidence for a@
+                501,  # evidence for b@
+            ],
+        )
+        rules = RobotsRules("acme.com.br", "", None, 200)
+
+        async with _client(handler) as client:
+            await process_request(
+                FakePool(conn),
+                _request(),
+                client=client,
+                user_agent="Bot",
+                robots_cache={"acme.com.br": rules},
+            )
+
+        playwright_calls = [
+            c for c in conn.execute_calls if "playwright_contact_probe" in c[0]
+        ]
+        assert playwright_calls == []
