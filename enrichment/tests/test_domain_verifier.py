@@ -238,6 +238,74 @@ class TestScoreDomainEvidence:
         assert result.status == "verified"
 
 
+class TestPartnerNameSignal:
+    def test_partner_name_found_adds_score(self):
+        html = "<html><body>Sócio fundador: João da Silva</body></html>"
+        result = score_domain_evidence(
+            html,
+            domain="empresa.com.br",
+            cnpj="12345678000190",
+            partner_names=["João da Silva"],
+        )
+        assert "partner_name_exact" in result.signals
+        assert result.score >= 20
+
+    def test_partner_name_not_found_adds_nothing(self):
+        html = "<html><body>Bem-vindo ao nosso site</body></html>"
+        result_without = score_domain_evidence(
+            html, domain="empresa.com.br", cnpj="12345678000190",
+        )
+        result_with = score_domain_evidence(
+            html, domain="empresa.com.br", cnpj="12345678000190",
+            partner_names=["João da Silva"],
+        )
+        assert result_with.score == result_without.score
+
+    def test_only_first_partner_match_counts(self):
+        html = "<html><body>João da Silva e Maria Souza são sócios</body></html>"
+        result = score_domain_evidence(
+            html,
+            domain="empresa.com.br",
+            cnpj="12345678000190",
+            partner_names=["João da Silva", "Maria Souza"],
+        )
+        partner_signals = [s for s in result.signals if "partner" in s]
+        assert len(partner_signals) == 1
+
+    def test_empty_partner_names_ignored(self):
+        html = "<html><body>conteudo normal</body></html>"
+        result = score_domain_evidence(
+            html,
+            domain="empresa.com.br",
+            cnpj="12345678000190",
+            partner_names=[],
+        )
+        assert not any("partner" in s for s in result.signals)
+
+    def test_partner_name_with_diacritics_matches_normalized(self):
+        html = "<html><body>Fundador: jose antonio pereira</body></html>"
+        result = score_domain_evidence(
+            html,
+            domain="empresa.com.br",
+            cnpj="12345678000190",
+            partner_names=["José Antônio Pereira"],
+        )
+        assert "partner_name_exact" in result.signals
+
+    def test_partner_name_combined_with_cnpj_reaches_verified(self):
+        cnpj = "12345678000190"
+        formatted = "12.345.678/0001-90"
+        html = f"<html><body>CNPJ: {formatted} | Sócio: João da Silva</body></html>"
+        result = score_domain_evidence(
+            html,
+            domain="empresa.com.br",
+            cnpj=cnpj,
+            partner_names=["João da Silva"],
+        )
+        assert result.status == "verified"
+        assert result.score >= 80
+
+
 class TestUpdateDomainStatus:
     @pytest.mark.asyncio
     async def test_writes_score_and_status(self):

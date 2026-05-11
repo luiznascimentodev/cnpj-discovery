@@ -68,6 +68,7 @@ def score_domain_evidence(
     cep: str | None = None,
     city: str | None = None,
     uf: str | None = None,
+    partner_names: list[str] | None = None,
     is_directory: bool = False,
     is_parked: bool = False,
 ) -> DomainScoreResult:
@@ -94,6 +95,14 @@ def score_domain_evidence(
     if fantasy_signal:
         score += fantasy_pts
         signals.append(fantasy_signal)
+
+    # Partner name signal — at most one match, +20 pts
+    for name in (partner_names or [])[:5]:
+        pts, signal = _name_match(html_norm, name, 20, "partner_name")
+        if signal:
+            score += pts
+            signals.append(signal)
+            break  # only count the first matching partner
 
     if cep:
         cep_digits = _DIGIT_RE.sub("", cep)
