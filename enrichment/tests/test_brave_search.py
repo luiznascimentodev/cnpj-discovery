@@ -171,6 +171,17 @@ class TestSearchCompanyDomain:
         assert "jusbrasil.com.br" in _DIRECTORY_DOMAINS
         assert "linkedin.com" in _DIRECTORY_DOMAINS
 
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_json_decode_error(self):
+        def handler(_request):
+            return httpx.Response(200, content=b"not json", headers={"content-type": "text/html"})
+
+        async with _make_client(handler) as client:
+            candidates = await search_company_domain(
+                "Empresa", None, client=client, api_key="key"
+            )
+        assert candidates == []
+
 
 class TestSearchWithQueries:
     @pytest.mark.asyncio

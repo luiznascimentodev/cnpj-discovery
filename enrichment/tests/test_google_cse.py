@@ -103,3 +103,29 @@ class TestSearchGoogleCse:
         assert seen_params["cx"] == "mycx"
         assert seen_params["q"] == '"12.345.678/0001-90"'
         assert seen_params["gl"] == "br"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_json_decode_error(self):
+        def handler(_request):
+            return httpx.Response(200, content=b"not json", headers={"content-type": "text/html"})
+
+        query = SearchQuery('"test"', 10, "trade_name")
+        async with _make_client(handler) as client:
+            candidates = await search_google_cse(query, client=client, api_key="k", cx="cx")
+        assert candidates == []
+
+    @pytest.mark.asyncio
+    async def test_returns_max_3_results(self):
+        def handler(_request):
+            return _cse_response([
+                _item("https://a.com.br"),
+                _item("https://b.com.br"),
+                _item("https://c.com.br"),
+                _item("https://d.com.br"),
+                _item("https://e.com.br"),
+            ])
+
+        query = SearchQuery('"test"', 10, "trade_name")
+        async with _make_client(handler) as client:
+            candidates = await search_google_cse(query, client=client, api_key="k", cx="cx")
+        assert len(candidates) == 3

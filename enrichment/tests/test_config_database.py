@@ -40,6 +40,21 @@ class TestSettings:
         settings = Settings(environment="production", enrichment_api_key="custom-key")
         settings.validate_runtime_security()
 
+    def test_external_search_defaults(self):
+        settings = Settings()
+        assert settings.brasilapi_enabled is True
+        assert settings.brasilapi_base_url == "https://brasilapi.com.br/api"
+        assert settings.brave_search_api_key == ""
+        assert settings.brave_search_base_url == "https://api.search.brave.com"
+
+    def test_google_cse_enabled_false_when_empty(self):
+        settings = Settings()
+        assert settings.google_cse_enabled is False
+
+    def test_google_cse_enabled_true_when_both_set(self):
+        settings = Settings(google_cse_api_key="key", google_cse_cx="cx")
+        assert settings.google_cse_enabled is True
+
 
 class TestDatabase:
     @pytest.mark.asyncio
