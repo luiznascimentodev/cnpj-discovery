@@ -141,10 +141,10 @@ services:
   searxng:
     image: searxng/searxng:latest
     container_name: cnpj-searxng
+    volumes:
+      - ./config/searxng-config:/etc/searxng:ro
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
-      SEARXNG_SECRET_KEY: "cnpj-discovery-searxng-key"
-      SEARXNG_LIMITER: "false"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/search?q=test&format=json > /dev/null 2>&1 || exit 1"]
       interval: 30s

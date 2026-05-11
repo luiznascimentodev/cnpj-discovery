@@ -35,6 +35,7 @@ async def search_searxng(
                 "format": "json",
                 "language": "pt-BR",
                 "categories": "general",
+                "engines": "google,bing,duckduckgo,brave",
             },
             timeout=httpx.Timeout(15.0),
         )
