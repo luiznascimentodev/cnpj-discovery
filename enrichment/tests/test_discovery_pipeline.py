@@ -1420,6 +1420,44 @@ class TestDnsOnlyMode:
 
         assert called == []
 
+    @pytest.mark.asyncio
+    async def test_dns_only_skips_http_probe_for_rf_email_candidates(self):
+        """dns_only=True: probe_domain must never be called even for rf_email_domain candidates."""
+        from unittest.mock import patch
+
+        conn = FakeConnectionMei(
+            estabelecimento_row={**_MEI_ROW, "email": "contato@acme.com.br"},
+            mei_row={"opcao_mei": "N"},
+        )
+
+        rf_email_candidate = DomainCandidate(
+            domain="acme.com.br",
+            source="rf_email_domain",
+            confidence=70,
+            homepage_url="https://acme.com.br",
+            reason="rf email match",
+        )
+
+        with (
+            patch("discovery.pipeline.discover_domain_candidates", return_value=[rf_email_candidate]),
+            patch("discovery.pipeline.probe_domain") as mock_probe,
+        ):
+            async with _httpx_client(_weak_ok_handler) as client:
+                outcome = await process_target(
+                    FakePool(conn),
+                    cnpj_basico="12345678",
+                    cnpj_ordem="0001",
+                    cnpj_dv="90",
+                    client=client,
+                    dns_only=True,
+                )
+
+        mock_probe.assert_not_called()
+        # Candidate should be saved as 'candidate' status without probing
+        domain_upserts = [args for sql, args in conn.execute_calls if "company_domains" in sql]
+        assert len(domain_upserts) >= 1
+        assert any("candidate" in args for args in domain_upserts)
+
 
 class TestNonBrandSlugCandidates:
     @pytest.mark.asyncio

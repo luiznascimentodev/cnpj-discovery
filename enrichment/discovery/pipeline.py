@@ -357,6 +357,17 @@ async def process_target(
             for candidate in candidates:
                 if candidate.source == "brand_slug" and candidate.domain not in dns_live_domains:
                     continue
+
+                # dns_only: skip HTTP probe — record candidate as-is for Phase 2 to validate.
+                if dns_only:
+                    await conn.execute(
+                        _SQL_UPSERT_DOMAIN,
+                        cnpj_basico, cnpj_ordem, cnpj_dv,
+                        candidate.domain, candidate.homepage_url,
+                        candidate.source, candidate.confidence, "candidate",
+                    )
+                    continue
+
                 probe = await probe_domain(candidate.domain, client=client)
                 score = score_domain_evidence(
                     probe.body,
