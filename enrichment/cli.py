@@ -22,6 +22,7 @@ import argparse
 import asyncio
 import os
 import socket
+import time
 from dataclasses import dataclass
 
 from loguru import logger
@@ -37,6 +38,7 @@ from crawler.queue import release_stale_requests
 from crawler.runner import run_batch as run_crawl_batch
 from database import close_pool, create_pool
 from config import settings
+from discovery.errors import SearchRateLimitError
 from discovery.external_search import ExternalSearchClient
 
 DISCOVERY_CONCURRENCY = settings.discovery_concurrency
@@ -56,6 +58,10 @@ DEFAULT_INTERVAL_SECONDS = 30
 
 _PHASE1_REASON = "phase1_dns"
 _PHASE2_REASON = "phase2_search"
+
+# Per-process source backoff: source → epoch seconds when it may be used again.
+# Set on SearchRateLimitError; read in _build_external_search each loop iteration.
+_source_backoffs: dict[str, float] = {}
 
 
 def default_worker_id() -> str:
@@ -114,6 +120,7 @@ async def do_discovery(
     sem = asyncio.Semaphore(concurrency)
 
     async def _process(target) -> int:
+        cnpj = f"{target.cnpj_basico}{target.cnpj_ordem}{target.cnpj_dv}"
         async with sem:
             try:
                 outcome = await discover_target(
@@ -127,7 +134,23 @@ async def do_discovery(
                 )
                 await complete_target(pool, target_id=target.id, status="done")
                 return outcome.crawl_requests_created
+            except SearchRateLimitError as exc:
+                _source_backoffs[exc.source] = time.time() + exc.retry_after
+                logger.warning(
+                    "search_rate_limit cnpj={} source={} retry_after={}s backoff_until={}",
+                    cnpj, exc.source, exc.retry_after,
+                    time.strftime("%H:%M:%S", time.localtime(_source_backoffs[exc.source])),
+                )
+                await complete_target(
+                    pool,
+                    target_id=target.id,
+                    status="retry",
+                    retry_in_seconds=exc.retry_after,
+                    last_error=str(exc),
+                )
+                return 0
             except Exception as exc:
+                logger.error("discovery_error cnpj={} error={}: {}", cnpj, type(exc).__name__, exc)
                 await complete_target(
                     pool,
                     target_id=target.id,
@@ -168,6 +191,10 @@ async def do_release_stale(pool, *, lease_seconds: int) -> int:
 
 
 def _build_external_search() -> ExternalSearchClient:
+    now = time.time()
+    blocked = frozenset(src for src, until in _source_backoffs.items() if now < until)
+    if blocked:
+        logger.debug("external_search blocked_sources={}", sorted(blocked))
     return ExternalSearchClient(
         brasilapi_enabled=settings.brasilapi_enabled,
         brasilapi_base_url=settings.brasilapi_base_url,
@@ -177,6 +204,7 @@ def _build_external_search() -> ExternalSearchClient:
         google_cse_cx=settings.google_cse_cx,
         google_cse_base_url=settings.google_cse_base_url,
         searxng_url=settings.searxng_url,
+        blocked_sources=blocked,
     )
 
 

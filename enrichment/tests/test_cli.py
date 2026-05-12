@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -33,6 +34,7 @@ from cli import (
 )
 from crawler.domain_runner import DomainRunStats
 from crawler.runner import RunStats
+from discovery.errors import SearchRateLimitError
 from discovery.pipeline import DiscoveryOutcome
 from resolver.domain_resolver import ResolveStats
 from scheduler import ClaimedTarget
@@ -588,3 +590,85 @@ class TestNewPhaseCommands:
             patch("cli.do_seed_phase2", AsyncMock(return_value=10000)),
         ):
             await cmd_seed_phase2(args)
+
+
+class TestRateLimitHandling:
+    @pytest.mark.asyncio
+    async def test_rate_limit_marks_target_retry_with_correct_delay(self):
+        """SearchRateLimitError marks target as retry with provider's retry_after."""
+        target = ClaimedTarget(
+            id=99, cnpj_basico="12345678", cnpj_ordem="0001", cnpj_dv="90",
+            reason="phase2_search", attempts=1, priority=50,
+        )
+
+        async def discover_side_effect(pool, *, cnpj_basico, **kwargs):
+            raise SearchRateLimitError("brave", retry_after=900)
+
+        with (
+            patch("cli.claim_targets", AsyncMock(return_value=[target])),
+            patch("cli.discover_target", AsyncMock(side_effect=discover_side_effect)),
+            patch("cli.complete_target", new_callable=AsyncMock) as complete,
+        ):
+            # Reset global backoff state before test
+            cli._source_backoffs.clear()
+            async with _stub_client() as client:
+                claimed, created = await do_discovery(
+                    object(), client=client, worker_id="w",
+                    batch_size=10, lease_seconds=300,
+                )
+
+        assert claimed == 1
+        assert created == 0
+        retry_call = complete.await_args_list[0]
+        assert retry_call.kwargs["status"] == "retry"
+        assert retry_call.kwargs["retry_in_seconds"] == 900
+        assert "brave" in retry_call.kwargs["last_error"]
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_sets_source_backoff(self):
+        """After SearchRateLimitError, the source is added to _source_backoffs."""
+        target = ClaimedTarget(
+            id=99, cnpj_basico="12345678", cnpj_ordem="0001", cnpj_dv="90",
+            reason="phase2_search", attempts=1, priority=50,
+        )
+
+        async def discover_side_effect(pool, *, cnpj_basico, cnpj_ordem, cnpj_dv, client, external_search=None, dns_only=False):
+            raise SearchRateLimitError("google_cse", retry_after=3600)
+
+        with (
+            patch("cli.claim_targets", AsyncMock(return_value=[target])),
+            patch("cli.discover_target", AsyncMock(side_effect=discover_side_effect)),
+            patch("cli.complete_target", new_callable=AsyncMock),
+        ):
+            cli._source_backoffs.clear()
+            before = time.time()
+            async with _stub_client() as client:
+                await do_discovery(
+                    object(), client=client, worker_id="w",
+                    batch_size=10, lease_seconds=300,
+                )
+
+        assert "google_cse" in cli._source_backoffs
+        assert cli._source_backoffs["google_cse"] >= before + 3600
+
+    @pytest.mark.asyncio
+    async def test_blocked_sources_passed_to_external_search(self):
+        """_build_external_search passes currently-backed-off sources as blocked."""
+        cli._source_backoffs.clear()
+        cli._source_backoffs["brave"] = time.time() + 9999
+
+        es = cli._build_external_search()
+        assert "brave" in es.blocked_sources
+
+        cli._source_backoffs.clear()
+
+    @pytest.mark.asyncio
+    async def test_expired_backoffs_not_blocked(self):
+        """Sources whose backoff has passed are not in blocked_sources."""
+        cli._source_backoffs.clear()
+        cli._source_backoffs["brave"] = time.time() - 1  # already expired
+
+        es = cli._build_external_search()
+        assert "brave" not in es.blocked_sources
+
+        cli._source_backoffs.clear()

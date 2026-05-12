@@ -1,6 +1,7 @@
 import httpx
 import pytest
 
+from discovery.errors import SearchRateLimitError, SearchTimeoutError, SearchUnavailableError
 from discovery.external_search import ExternalSearchClient
 from domain_discovery import DomainCandidate
 
@@ -321,3 +322,181 @@ class TestEnrichCandidatesV2:
         # Verify that queries were made (which would use QSA names)
         assert len(queries_sent) > 0
         assert len(candidates) > 0
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_error_propagates_from_brave(self):
+        """SearchRateLimitError from Brave bubbles up so the caller can back off."""
+        def handler(request):
+            if "brasilapi" in str(request.url):
+                return _brasilapi_response(email=None)
+            return httpx.Response(429)
+
+        client_obj = ExternalSearchClient(
+            brasilapi_enabled=True,
+            brave_api_key="key",
+        )
+        async with _make_client(handler) as client:
+            with pytest.raises(SearchRateLimitError) as exc_info:
+                await client_obj.enrich_candidates(
+                    cnpj14="12345678000190",
+                    legal_name="EMPRESA LTDA",
+                    trade_name="Empresa",
+                    city="SP",
+                    partner_names=[],
+                    client=client,
+                )
+        assert exc_info.value.source == "brave"
+
+    @pytest.mark.asyncio
+    async def test_timeout_from_searxng_falls_through_to_brave(self):
+        """SearchTimeoutError from SearXNG is absorbed; Brave is tried next."""
+        call_log = []
+
+        def handler(request):
+            url = str(request.url)
+            call_log.append(url)
+            if "brasilapi" in url:
+                return _brasilapi_response(email=None)
+            if "searxng" in url:
+                raise httpx.TimeoutException("timeout", request=request)
+            if "search.brave.com" in url:
+                return _brave_response(["empresa-via-brave.com.br"])
+            return httpx.Response(404)
+
+        client_obj = ExternalSearchClient(
+            brasilapi_enabled=True,
+            searxng_url="http://searxng:8080",
+            brave_api_key="brave-key",
+        )
+        async with _make_client(handler) as client:
+            candidates = await client_obj.enrich_candidates(
+                cnpj14="12345678000190",
+                legal_name="EMPRESA LTDA",
+                trade_name="Empresa",
+                city="SP",
+                partner_names=[],
+                client=client,
+            )
+
+        assert any("search.brave.com" in u for u in call_log)
+        assert len(candidates) > 0
+        assert candidates[0].domain == "empresa-via-brave.com.br"
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_error_propagates_from_searxng(self):
+        """SearchRateLimitError from SearXNG bubbles up."""
+        def handler(request):
+            if "brasilapi" in str(request.url):
+                return _brasilapi_response(email=None)
+            return httpx.Response(429)
+
+        client_obj = ExternalSearchClient(
+            brasilapi_enabled=True,
+            searxng_url="http://searxng:8080",
+        )
+        async with _make_client(handler) as client:
+            with pytest.raises(SearchRateLimitError) as exc_info:
+                await client_obj.enrich_candidates(
+                    cnpj14="12345678000190",
+                    legal_name="EMPRESA LTDA",
+                    trade_name="Empresa",
+                    city="SP",
+                    partner_names=[],
+                    client=client,
+                )
+        assert exc_info.value.source == "searxng"
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_error_propagates_from_google_cse(self):
+        """SearchRateLimitError from Google CSE bubbles up."""
+        def handler(request):
+            if "brasilapi" in str(request.url):
+                return _brasilapi_response(email=None)
+            if "search.brave.com" in str(request.url):
+                return _brave_response([])
+            return httpx.Response(429)
+
+        client_obj = ExternalSearchClient(
+            brasilapi_enabled=True,
+            brave_api_key="brave-key",
+            google_cse_api_key="google-key",
+            google_cse_cx="my-cx",
+        )
+        async with _make_client(handler) as client:
+            with pytest.raises(SearchRateLimitError) as exc_info:
+                await client_obj.enrich_candidates(
+                    cnpj14="12345678000190",
+                    legal_name="EMPRESA LTDA",
+                    trade_name="Empresa",
+                    city="SP",
+                    partner_names=[],
+                    client=client,
+                )
+        assert exc_info.value.source == "google_cse"
+
+    @pytest.mark.asyncio
+    async def test_unavailable_from_google_cse_returns_empty(self):
+        """SearchUnavailableError from Google CSE is absorbed and [] is returned."""
+        def handler(request):
+            if "brasilapi" in str(request.url):
+                return _brasilapi_response(email=None)
+            if "search.brave.com" in str(request.url):
+                return _brave_response([])
+            raise httpx.ConnectError("down", request=request)
+
+        client_obj = ExternalSearchClient(
+            brasilapi_enabled=True,
+            brave_api_key="brave-key",
+            google_cse_api_key="google-key",
+            google_cse_cx="my-cx",
+        )
+        async with _make_client(handler) as client:
+            candidates = await client_obj.enrich_candidates(
+                cnpj14="12345678000190",
+                legal_name="EMPRESA LTDA",
+                trade_name="Empresa",
+                city="SP",
+                partner_names=[],
+                client=client,
+            )
+        assert candidates == []
+
+    @pytest.mark.asyncio
+    async def test_blocked_sources_are_skipped(self):
+        """Sources in blocked_sources are not called."""
+        call_log = []
+
+        def handler(request):
+            url = str(request.url)
+            call_log.append(url)
+            if "brasilapi" in url:
+                return _brasilapi_response(email=None)
+            if "googleapis.com" in url:
+                return _cse_response(["resultado.com.br"])
+            return httpx.Response(200, json={"results": []})
+
+        client_obj = ExternalSearchClient(
+            brasilapi_enabled=True,
+            searxng_url="http://searxng:8080",
+            brave_api_key="brave-key",
+            google_cse_api_key="google-key",
+            google_cse_cx="my-cx",
+            blocked_sources=frozenset({"searxng", "brave"}),
+        )
+        async with _make_client(handler) as client:
+            candidates = await client_obj.enrich_candidates(
+                cnpj14="12345678000190",
+                legal_name="EMPRESA LTDA",
+                trade_name="Empresa",
+                city="SP",
+                partner_names=[],
+                client=client,
+            )
+
+        brave_calls = [u for u in call_log if "search.brave.com" in u]
+        searxng_calls = [u for u in call_log if "searxng" in u]
+        assert brave_calls == []
+        assert searxng_calls == []
+        assert any("googleapis.com" in u for u in call_log)
+        assert len(candidates) > 0
+        assert candidates[0].domain == "resultado.com.br"

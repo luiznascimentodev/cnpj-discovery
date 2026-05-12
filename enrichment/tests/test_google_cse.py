@@ -1,6 +1,7 @@
 import httpx
 import pytest
 
+from discovery.errors import SearchRateLimitError, SearchTimeoutError, SearchUnavailableError
 from discovery.google_cse import search_google_cse
 from discovery.search_queries import SearchQuery
 
@@ -52,26 +53,49 @@ class TestSearchGoogleCse:
         assert "acmebrasil.com.br" in domains
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_400(self):
+    async def test_raises_unavailable_on_400(self):
         def handler(_request):
             return httpx.Response(400, json={"error": {"code": 400}})
 
         query = SearchQuery('"test"', 10, "trade_name")
         async with _make_client(handler) as client:
-            candidates = await search_google_cse(query, client=client, api_key="k", cx="cx")
-
-        assert candidates == []
+            with pytest.raises(SearchUnavailableError) as exc_info:
+                await search_google_cse(query, client=client, api_key="k", cx="cx")
+        assert exc_info.value.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_http_error(self):
+    async def test_raises_unavailable_on_connect_error(self):
         def handler(request):
             raise httpx.ConnectError("down", request=request)
 
         query = SearchQuery('"test"', 10, "trade_name")
         async with _make_client(handler) as client:
-            candidates = await search_google_cse(query, client=client, api_key="k", cx="cx")
+            with pytest.raises(SearchUnavailableError) as exc_info:
+                await search_google_cse(query, client=client, api_key="k", cx="cx")
+        assert exc_info.value.source == "google_cse"
 
-        assert candidates == []
+    @pytest.mark.asyncio
+    async def test_raises_rate_limit_on_429(self):
+        def handler(_request):
+            return httpx.Response(429)
+
+        query = SearchQuery('"test"', 10, "trade_name")
+        async with _make_client(handler) as client:
+            with pytest.raises(SearchRateLimitError) as exc_info:
+                await search_google_cse(query, client=client, api_key="k", cx="cx")
+        assert exc_info.value.source == "google_cse"
+        assert exc_info.value.retry_after == 3600
+
+    @pytest.mark.asyncio
+    async def test_raises_timeout_on_timeout(self):
+        def handler(request):
+            raise httpx.TimeoutException("timeout", request=request)
+
+        query = SearchQuery('"test"', 10, "trade_name")
+        async with _make_client(handler) as client:
+            with pytest.raises(SearchTimeoutError) as exc_info:
+                await search_google_cse(query, client=client, api_key="k", cx="cx")
+        assert exc_info.value.source == "google_cse"
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_items(self):
@@ -105,14 +129,14 @@ class TestSearchGoogleCse:
         assert seen_params["gl"] == "br"
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_json_decode_error(self):
+    async def test_raises_unavailable_on_json_decode_error(self):
         def handler(_request):
             return httpx.Response(200, content=b"not json", headers={"content-type": "text/html"})
 
         query = SearchQuery('"test"', 10, "trade_name")
         async with _make_client(handler) as client:
-            candidates = await search_google_cse(query, client=client, api_key="k", cx="cx")
-        assert candidates == []
+            with pytest.raises(SearchUnavailableError):
+                await search_google_cse(query, client=client, api_key="k", cx="cx")
 
     @pytest.mark.asyncio
     async def test_returns_max_3_results(self):

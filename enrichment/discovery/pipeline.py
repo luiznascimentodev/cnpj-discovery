@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import httpx
+from loguru import logger
 
 from discovery.website_probe import ProbeResult, dns_exists, probe_domain
 from domain_discovery import DomainCandidate, discover_domain_candidates
@@ -230,6 +231,7 @@ async def process_target(
     dns_only: bool = False,
 ) -> DiscoveryOutcome:
     cnpj = f"{cnpj_basico}{cnpj_ordem}{cnpj_dv}"
+    logger.debug("pipeline.start cnpj={} dns_only={}", cnpj, dns_only)
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -237,6 +239,7 @@ async def process_target(
         )
 
     if not row:
+        logger.debug("pipeline.no_row cnpj={}", cnpj)
         return DiscoveryOutcome(cnpj=cnpj, domains_seen=0, crawl_requests_created=0)
 
     async with pool.acquire() as conn:
@@ -337,6 +340,7 @@ async def process_target(
             )
             dns_dead = [c for c, alive in zip(brand_slugs, dns_results) if not alive]
             dns_live_domains = {c.domain for c, alive in zip(brand_slugs, dns_results) if alive}
+            logger.debug("pipeline.dns_check cnpj={} checked={} live={} dead={}", cnpj, len(brand_slugs), len(dns_live_domains), len(dns_dead))
         else:
             dns_dead = []
             dns_live_domains = set()
@@ -456,9 +460,14 @@ async def process_target(
                             )
                             requests_created += 1
 
-    return DiscoveryOutcome(
+    outcome = DiscoveryOutcome(
         cnpj=cnpj,
         domains_seen=len(candidates),
         crawl_requests_created=requests_created,
         rf_contacts_saved=rf_contacts_saved,
     )
+    logger.debug(
+        "pipeline.done cnpj={} domains={} crawl_requests={} rf_contacts={}",
+        cnpj, outcome.domains_seen, outcome.crawl_requests_created, outcome.rf_contacts_saved,
+    )
+    return outcome

@@ -8,6 +8,7 @@ from __future__ import annotations
 import httpx
 
 from discovery.brave_search import _DIRECTORY_DOMAINS
+from discovery.errors import SearchRateLimitError, SearchTimeoutError, SearchUnavailableError
 from discovery.search_queries import SearchQuery
 from domain_discovery import DomainCandidate, normalize_domain
 
@@ -37,16 +38,20 @@ async def search_google_cse(
             },
             timeout=httpx.Timeout(10.0),
         )
-    except httpx.HTTPError:
-        return []
+    except httpx.TimeoutException:
+        raise SearchTimeoutError("google_cse")
+    except httpx.HTTPError as exc:
+        raise SearchUnavailableError("google_cse", 0) from exc
 
+    if response.status_code == 429:
+        raise SearchRateLimitError("google_cse", retry_after=3600)
     if response.status_code != 200:
-        return []
+        raise SearchUnavailableError("google_cse", response.status_code)
 
     try:
         data = response.json()
-    except Exception:
-        return []
+    except Exception as exc:
+        raise SearchUnavailableError("google_cse", response.status_code) from exc
 
     items = data.get("items") or []
     if not items:

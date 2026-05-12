@@ -13,6 +13,7 @@ from __future__ import annotations
 import httpx
 
 from discovery.brave_search import _DIRECTORY_DOMAINS
+from discovery.errors import SearchRateLimitError, SearchTimeoutError, SearchUnavailableError
 from discovery.search_queries import SearchQuery
 from domain_discovery import DomainCandidate, normalize_domain
 
@@ -26,7 +27,13 @@ async def search_searxng(
     client: httpx.AsyncClient,
     base_url: str = "http://searxng:8080",
 ) -> list[DomainCandidate]:
-    """Busca via SearXNG local. Retorna [] em qualquer erro."""
+    """Busca via SearXNG local.
+
+    Raises:
+        SearchRateLimitError: HTTP 429.
+        SearchTimeoutError: request timed out.
+        SearchUnavailableError: connection error, 5xx, or unparseable response.
+    """
     try:
         response = await client.get(
             f"{base_url}/search",
@@ -39,16 +46,20 @@ async def search_searxng(
             },
             timeout=httpx.Timeout(15.0),
         )
-    except httpx.HTTPError:
-        return []
+    except httpx.TimeoutException:
+        raise SearchTimeoutError("searxng")
+    except httpx.HTTPError as exc:
+        raise SearchUnavailableError("searxng", 0) from exc
 
+    if response.status_code == 429:
+        raise SearchRateLimitError("searxng", retry_after=30)
     if response.status_code != 200:
-        return []
+        raise SearchUnavailableError("searxng", response.status_code)
 
     try:
         data = response.json()
-    except Exception:
-        return []
+    except Exception as exc:
+        raise SearchUnavailableError("searxng", response.status_code) from exc
 
     results = data.get("results") or []
     if not results:

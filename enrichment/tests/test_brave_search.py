@@ -2,6 +2,7 @@ import httpx
 import pytest
 
 from discovery.brave_search import _DIRECTORY_DOMAINS, _MAX_RESULTS, search_company_domain, search_with_queries
+from discovery.errors import SearchRateLimitError, SearchTimeoutError, SearchUnavailableError
 from discovery.search_queries import SearchQuery
 
 
@@ -87,40 +88,45 @@ class TestSearchCompanyDomain:
         assert candidates[0].domain == "acme.com.br"
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_http_429(self):
+    async def test_raises_rate_limit_on_429(self):
         def handler(_request):
             return httpx.Response(429)
 
         async with _make_client(handler) as client:
-            candidates = await search_company_domain(
-                "Acme", None, client=client, api_key="key"
-            )
-
-        assert candidates == []
+            with pytest.raises(SearchRateLimitError) as exc_info:
+                await search_company_domain("Acme", None, client=client, api_key="key")
+        assert exc_info.value.source == "brave"
+        assert exc_info.value.retry_after == 900
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_http_500(self):
+    async def test_raises_unavailable_on_500(self):
         def handler(_request):
             return httpx.Response(500)
 
         async with _make_client(handler) as client:
-            candidates = await search_company_domain(
-                "Acme", None, client=client, api_key="key"
-            )
-
-        assert candidates == []
+            with pytest.raises(SearchUnavailableError) as exc_info:
+                await search_company_domain("Acme", None, client=client, api_key="key")
+        assert exc_info.value.status_code == 500
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_http_error(self):
+    async def test_raises_unavailable_on_connect_error(self):
         def handler(request):
             raise httpx.ConnectError("down", request=request)
 
         async with _make_client(handler) as client:
-            candidates = await search_company_domain(
-                "Acme", None, client=client, api_key="key"
-            )
+            with pytest.raises(SearchUnavailableError) as exc_info:
+                await search_company_domain("Acme", None, client=client, api_key="key")
+        assert exc_info.value.source == "brave"
 
-        assert candidates == []
+    @pytest.mark.asyncio
+    async def test_raises_timeout_on_timeout(self):
+        def handler(request):
+            raise httpx.TimeoutException("timeout", request=request)
+
+        async with _make_client(handler) as client:
+            with pytest.raises(SearchTimeoutError) as exc_info:
+                await search_company_domain("Acme", None, client=client, api_key="key")
+        assert exc_info.value.source == "brave"
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_web_results_missing(self):
@@ -172,15 +178,13 @@ class TestSearchCompanyDomain:
         assert "linkedin.com" in _DIRECTORY_DOMAINS
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_json_decode_error(self):
+    async def test_raises_unavailable_on_json_decode_error(self):
         def handler(_request):
             return httpx.Response(200, content=b"not json", headers={"content-type": "text/html"})
 
         async with _make_client(handler) as client:
-            candidates = await search_company_domain(
-                "Empresa", None, client=client, api_key="key"
-            )
-        assert candidates == []
+            with pytest.raises(SearchUnavailableError):
+                await search_company_domain("Empresa", None, client=client, api_key="key")
 
 
 class TestSearchWithQueries:

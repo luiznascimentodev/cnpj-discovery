@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import httpx
 
+from discovery.errors import SearchRateLimitError, SearchTimeoutError, SearchUnavailableError
 from discovery.search_queries import SearchQuery
 from domain_discovery import DomainCandidate, normalize_domain
 
@@ -77,6 +78,13 @@ async def _execute_query(
     confidence: int,
     seen: set[str],
 ) -> list[DomainCandidate]:
+    """Execute a single Brave Search query.
+
+    Raises:
+        SearchRateLimitError: HTTP 429 (daily quota exhausted).
+        SearchTimeoutError: request timed out.
+        SearchUnavailableError: connection error, 5xx, or unparseable response.
+    """
     try:
         response = await client.get(
             f"{base_url}/res/v1/web/search",
@@ -84,16 +92,20 @@ async def _execute_query(
             headers={"X-Subscription-Token": api_key, "Accept": "application/json"},
             timeout=httpx.Timeout(10.0),
         )
-    except httpx.HTTPError:
-        return []
+    except httpx.TimeoutException:
+        raise SearchTimeoutError("brave")
+    except httpx.HTTPError as exc:
+        raise SearchUnavailableError("brave", 0) from exc
 
+    if response.status_code == 429:
+        raise SearchRateLimitError("brave", retry_after=900)
     if response.status_code != 200:
-        return []
+        raise SearchUnavailableError("brave", response.status_code)
 
     try:
         data = response.json()
-    except (ValueError, Exception):
-        return []
+    except (ValueError, Exception) as exc:
+        raise SearchUnavailableError("brave", response.status_code) from exc
 
     return _parse_results(data, confidence, seen=seen)
 

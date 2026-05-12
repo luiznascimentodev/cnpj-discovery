@@ -1,6 +1,7 @@
 import httpx
 import pytest
 
+from discovery.errors import SearchRateLimitError, SearchTimeoutError, SearchUnavailableError
 from discovery.search_queries import SearchQuery
 from discovery.searxng import search_searxng
 
@@ -42,24 +43,45 @@ class TestSearchSearxng:
         assert candidates[0].confidence == min(55 + 30, 100)
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_http_error(self):
+    async def test_raises_unavailable_on_http_error(self):
         def handler(request):
             raise httpx.ConnectError("down", request=request)
 
         async with _make_client(handler) as client:
-            candidates = await search_searxng(_QUERY, client=client, base_url="http://searxng")
-
-        assert candidates == []
+            with pytest.raises(SearchUnavailableError) as exc_info:
+                await search_searxng(_QUERY, client=client, base_url="http://searxng")
+        assert exc_info.value.source == "searxng"
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_non_200(self):
+    async def test_raises_unavailable_on_503(self):
         def handler(request):
             return httpx.Response(503)
 
         async with _make_client(handler) as client:
-            candidates = await search_searxng(_QUERY, client=client, base_url="http://searxng")
+            with pytest.raises(SearchUnavailableError) as exc_info:
+                await search_searxng(_QUERY, client=client, base_url="http://searxng")
+        assert exc_info.value.status_code == 503
 
-        assert candidates == []
+    @pytest.mark.asyncio
+    async def test_raises_rate_limit_on_429(self):
+        def handler(request):
+            return httpx.Response(429)
+
+        async with _make_client(handler) as client:
+            with pytest.raises(SearchRateLimitError) as exc_info:
+                await search_searxng(_QUERY, client=client, base_url="http://searxng")
+        assert exc_info.value.source == "searxng"
+        assert exc_info.value.retry_after == 30
+
+    @pytest.mark.asyncio
+    async def test_raises_timeout_on_timeout_error(self):
+        def handler(request):
+            raise httpx.TimeoutException("timeout", request=request)
+
+        async with _make_client(handler) as client:
+            with pytest.raises(SearchTimeoutError) as exc_info:
+                await search_searxng(_QUERY, client=client, base_url="http://searxng")
+        assert exc_info.value.source == "searxng"
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_results(self):
@@ -72,14 +94,13 @@ class TestSearchSearxng:
         assert candidates == []
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_json_decode_error(self):
+    async def test_raises_unavailable_on_json_decode_error(self):
         def handler(request):
             return httpx.Response(200, content=b"not json", headers={"content-type": "text/html"})
 
         async with _make_client(handler) as client:
-            candidates = await search_searxng(_QUERY, client=client, base_url="http://searxng")
-
-        assert candidates == []
+            with pytest.raises(SearchUnavailableError):
+                await search_searxng(_QUERY, client=client, base_url="http://searxng")
 
     @pytest.mark.asyncio
     async def test_deduplicates_same_domain(self):
