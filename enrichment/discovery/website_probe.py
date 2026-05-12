@@ -5,18 +5,12 @@ anti-bot, sem cookies. Detecta páginas estacionadas/parked para descartá-las
 antes de consumir orçamento de crawl.
 """
 import asyncio
-import concurrent.futures
-import socket
 from dataclasses import dataclass
 from typing import Optional
 
+import dns.asyncresolver
+import dns.exception
 import httpx
-
-# Dedicated thread pool for DNS lookups. The default asyncio executor fills with
-# zombie threads when wait_for times out (the underlying thread keeps running until
-# the OS DNS timeout of 5-10s). A large dedicated pool prevents this from blocking
-# all other executor tasks.
-_DNS_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=200, thread_name_prefix="dns")
 
 DEFAULT_USER_AGENT = "CNPJDiscoveryBot/1.0 (+https://cnpj-discovery.example/crawler)"
 DEFAULT_TIMEOUT_SECONDS = 12.0
@@ -101,19 +95,23 @@ async def probe_domain(
 async def dns_exists(domain: str, *, timeout: float = 0.5) -> bool:
     """Returns True if domain has at least one A/AAAA DNS record.
 
-    Uses a dedicated large thread pool to avoid clogging the default executor
-    with zombie threads (wait_for cancels the Future but the thread keeps
-    blocking until the OS DNS timeout of 5-10s).
+    Uses dnspython async UDP resolver — truly non-blocking, no thread pool,
+    cancellation works properly (no zombie threads on timeout). A and AAAA
+    checks run in parallel so non-existent domains only wait one timeout.
     """
-    loop = asyncio.get_running_loop()
-    try:
-        await asyncio.wait_for(
-            loop.run_in_executor(_DNS_EXECUTOR, socket.getaddrinfo, domain, None),
-            timeout=timeout,
-        )
-        return True
-    except (OSError, asyncio.TimeoutError):
-        return False
+    resolver = dns.asyncresolver.Resolver()
+    resolver.timeout = timeout
+    resolver.lifetime = timeout
+
+    async def _check(qtype: str) -> bool:
+        try:
+            await resolver.resolve(domain, qtype)
+            return True
+        except (dns.exception.DNSException, OSError, asyncio.TimeoutError):
+            return False
+
+    results = await asyncio.gather(_check("A"), _check("AAAA"))
+    return any(results)
 
 
 def make_default_client(*, user_agent: str = DEFAULT_USER_AGENT) -> httpx.AsyncClient:

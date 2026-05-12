@@ -103,28 +103,36 @@ class TestProbeDomain:
 class TestDnsExists:
     @pytest.mark.asyncio
     async def test_returns_true_when_domain_resolves(self):
-        with patch("discovery.website_probe.socket.getaddrinfo", return_value=[("127.0.0.1",)]):
+        import dns.asyncresolver
+
+        async def mock_resolve(domain, qtype):
+            return ["127.0.0.1"]
+
+        with patch.object(dns.asyncresolver.Resolver, "resolve", side_effect=mock_resolve):
             result = await dns_exists("acme.com.br")
         assert result is True
 
     @pytest.mark.asyncio
     async def test_returns_false_when_domain_not_found(self):
-        def raise_oserror(*args):
-            raise OSError("Name not found")
+        import dns.asyncresolver
+        import dns.exception
 
-        with patch("discovery.website_probe.socket.getaddrinfo", side_effect=raise_oserror):
+        async def mock_resolve(domain, qtype):
+            raise dns.exception.DNSException("NXDOMAIN")
+
+        with patch.object(dns.asyncresolver.Resolver, "resolve", side_effect=mock_resolve):
             result = await dns_exists("nxdomain-deadbeef.com.br")
         assert result is False
 
     @pytest.mark.asyncio
     async def test_returns_false_on_timeout(self):
         import asyncio
+        import dns.asyncresolver
 
-        async def slow_lookup(*args):
-            await asyncio.sleep(10)
+        async def mock_resolve(domain, qtype):
+            raise asyncio.TimeoutError()
 
-        with patch("asyncio.get_running_loop") as mock_loop:
-            mock_loop.return_value.run_in_executor = lambda _, fn, *a: slow_lookup(*a)
+        with patch.object(dns.asyncresolver.Resolver, "resolve", side_effect=mock_resolve):
             result = await dns_exists("slow.com.br", timeout=0.001)
         assert result is False
 
