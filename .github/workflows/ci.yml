@@ -176,4 +176,14 @@ jobs:
       - name: Smoke test
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
-        run: curl -fsS "http://${VPS_HOST}/api/v1/health"
+        run: |
+          for attempt in {1..30}; do
+            if curl -fsS "http://${VPS_HOST}/api/v1/health"; then
+              exit 0
+            fi
+            echo "Healthcheck failed, retrying (${attempt}/30)..."
+            sleep 5
+          done
+
+          curl -v "http://${VPS_HOST}/api/v1/health"
+          exit 1
