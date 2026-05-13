@@ -135,3 +135,89 @@ class TestRoutes:
         assert response.json()["items"] == []
         fetch_evidence.assert_awaited_once_with(pool, "12345678000190", limit=10)
         insert_audit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_suppress_endpoint_records_request(self, client):
+        from api.schemas import SuppressionResponse
+
+        pool = object()
+        sup_response = SuppressionResponse(
+            cnpj="12345678000190",
+            contact_type="email",
+            normalized_value="x@y.com",
+        )
+        with (
+            patch("api.routes.get_pool", new_callable=AsyncMock, return_value=pool),
+            patch(
+                "api.routes.register_suppression",
+                new_callable=AsyncMock,
+                return_value=sup_response,
+            ) as suppress,
+            patch("api.routes.insert_access_audit", new_callable=AsyncMock) as audit,
+        ):
+            response = await client.post(
+                "/v1/enrichment/suppress",
+                headers=HEADERS,
+                json={
+                    "cnpj": "12.345.678/0001-90",
+                    "contact_type": "email",
+                    "normalized_value": "x@y.com",
+                    "reason": "LGPD",
+                    "requested_by": "admin@cnpj-discovery",
+                },
+            )
+
+        assert response.status_code == 202
+        suppress.assert_awaited_once()
+        audit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_feedback_endpoint_returns_404_when_contact_missing(self, client):
+        with (
+            patch("api.routes.get_pool", new_callable=AsyncMock, return_value=object()),
+            patch(
+                "api.routes.apply_contact_feedback",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            response = await client.post(
+                "/v1/enrichment/contact/77/feedback",
+                headers=PAID_HEADERS,
+                json={"feedback": "invalid"},
+            )
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_feedback_endpoint_returns_response_and_audits(self, client):
+        from api.schemas import FeedbackResponse
+
+        pool = object()
+        feedback_response = FeedbackResponse(
+            contact_id=77,
+            feedback="valid",
+            new_status="active",
+            confidence=100,
+        )
+        with (
+            patch("api.routes.get_pool", new_callable=AsyncMock, return_value=pool),
+            patch(
+                "api.routes.apply_contact_feedback",
+                new_callable=AsyncMock,
+                return_value=feedback_response,
+            ) as apply,
+            patch("api.routes.insert_access_audit", new_callable=AsyncMock) as audit,
+        ):
+            response = await client.post(
+                "/v1/enrichment/contact/77/feedback",
+                headers=PAID_HEADERS,
+                json={"feedback": "valid"},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["new_status"] == "active"
+        assert body["confidence"] == 100
+        apply.assert_awaited_once()
+        audit.assert_awaited_once()

@@ -22,7 +22,16 @@ from database import create_pool, close_pool
 from middleware.concurrency_monitor import ThunderingHerdMiddleware
 from middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
 from middleware.query_monitor import N1DetectorMiddleware
-from routers import bairros, cnaes, empresa, export, paid_enrichment, prospecting, status
+from routers import (
+    bairros,
+    billing_webhook,
+    cnaes,
+    empresa,
+    export,
+    paid_enrichment,
+    prospecting,
+    status,
+)
 
 
 @asynccontextmanager
@@ -65,6 +74,7 @@ def create_app() -> FastAPI:
             {"name": "prospecting", "description": "Busca e filtros de empresas"},
             {"name": "export", "description": "Exportação de dados em CSV"},
             {"name": "paid_enrichment", "description": "Dados pagos de enriquecimento via crawler"},
+            {"name": "billing", "description": "Stripe webhook receiver"},
             {"name": "status", "description": "Status do ETL e estatísticas"},
         ],
         lifespan=lifespan,
@@ -78,7 +88,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
         allow_credentials=True,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
 
@@ -97,6 +107,7 @@ def create_app() -> FastAPI:
     app.include_router(cnaes.router, prefix="/v1")
     app.include_router(empresa.router, prefix="/v1")
     app.include_router(paid_enrichment.router, prefix="/v1")
+    app.include_router(billing_webhook.router, prefix="/v1")
     app.include_router(export.router, prefix="/v1")
     app.include_router(status.router, prefix="/v1")
 

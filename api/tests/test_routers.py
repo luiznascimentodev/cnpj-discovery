@@ -478,10 +478,16 @@ DETAIL_ROW = {
 }
 
 
-def make_empresa_pool(fetchrow_side, fetch_side):
+def make_empresa_pool(fetchrow_side, fetch_side, crawler_domains=None, crawler_contacts=None):
     mock_conn = AsyncMock()
     mock_conn.fetchrow = AsyncMock(side_effect=fetchrow_side)
-    mock_conn.fetch = AsyncMock(side_effect=fetch_side)
+    mock_conn.fetch = AsyncMock(
+        side_effect=[
+            *fetch_side,
+            crawler_domains or [],
+            crawler_contacts or [],
+        ]
+    )
     mock_pool = MagicMock()
     mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
     mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -491,7 +497,7 @@ def make_empresa_pool(fetchrow_side, fetch_side):
 class TestEmpresaRouter:
     @pytest.mark.asyncio
     async def test_found_without_punctuation(self, client: AsyncClient):
-        pool = make_empresa_pool([DETAIL_ROW, None], [[], []])
+        pool = make_empresa_pool([DETAIL_ROW, None], [[]])
         with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
             with patch("routers.empresa.cache_set", AsyncMock()):
                 with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
@@ -503,7 +509,7 @@ class TestEmpresaRouter:
 
     @pytest.mark.asyncio
     async def test_found_with_punctuation(self, client: AsyncClient):
-        pool = make_empresa_pool([DETAIL_ROW, None], [[], []])
+        pool = make_empresa_pool([DETAIL_ROW, None], [[]])
         with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
             with patch("routers.empresa.cache_set", AsyncMock()):
                 with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
@@ -541,7 +547,7 @@ class TestEmpresaRouter:
             "nome_socio": "MARIA", "cpf_cnpj_socio": "***", "qualificacao": 49,
             "qualificacao_descricao": "Sócio", "data_entrada": None, "faixa_etaria": None,
         }
-        pool = make_empresa_pool([DETAIL_ROW, None], [[socio], []])
+        pool = make_empresa_pool([DETAIL_ROW, None], [[socio]])
         with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
             with patch("routers.empresa.cache_set", AsyncMock()):
                 with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
@@ -550,12 +556,59 @@ class TestEmpresaRouter:
         assert response.json()["socios"][0]["nome_socio"] == "MARIA"
 
     @pytest.mark.asyncio
+    async def test_enrichment_available_flag_false_by_default(self, client: AsyncClient):
+        pool = make_empresa_pool([DETAIL_ROW, None], [[]])
+        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
+            with patch("routers.empresa.cache_set", AsyncMock()):
+                with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
+                    response = await client.get("/v1/empresa/12345678000190")
+        body = response.json()
+        assert body["enrichment_available"] is False
+        assert body["enrichment_required_feature"] is None
+        assert body["crawler_enrichment"] == {"status": "not_enriched", "domains": [], "contacts": []}
+
+    @pytest.mark.asyncio
+    async def test_enrichment_data_is_included_in_separate_block(self, client: AsyncClient):
+        domain = {
+            "domain": "teste.com.br",
+            "homepage_url": "https://teste.com.br",
+            "source": "rf_email_domain",
+            "confidence": 95,
+            "status": "verified",
+            "first_seen": None,
+            "last_seen": None,
+        }
+        contact = {
+            "contact_type": "email",
+            "value": "vendas@teste.com.br",
+            "normalized_value": "vendas@teste.com.br",
+            "label": "Vendas",
+            "source": "official_site",
+            "confidence": 100,
+            "evidence_url": "https://teste.com.br/contato",
+            "source_domain": "teste.com.br",
+            "first_seen": None,
+            "last_seen": None,
+        }
+        pool = make_empresa_pool([DETAIL_ROW, None], [[]], crawler_domains=[domain], crawler_contacts=[contact])
+        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
+            with patch("routers.empresa.cache_set", AsyncMock()):
+                with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
+                    response = await client.get("/v1/empresa/12345678000190")
+        body = response.json()
+        assert body["enrichment_available"] is True
+        assert body["enrichment_required_feature"] == "crawler_contacts"
+        assert body["crawler_enrichment"]["status"] == "done"
+        assert body["crawler_enrichment"]["domains"][0]["domain"] == "teste.com.br"
+        assert body["crawler_enrichment"]["contacts"][0]["value"] == "vendas@teste.com.br"
+
+    @pytest.mark.asyncio
     async def test_simples_nacional_included(self, client: AsyncClient):
         simples = {
             "opcao_simples": "S", "data_opcao_simples": None, "data_exc_simples": None,
             "opcao_mei": "N", "data_opcao_mei": None, "data_exc_mei": None,
         }
-        pool = make_empresa_pool([DETAIL_ROW, simples], [[], []])
+        pool = make_empresa_pool([DETAIL_ROW, simples], [[]])
         with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
             with patch("routers.empresa.cache_set", AsyncMock()):
                 with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
@@ -662,3 +715,55 @@ class TestBairrosRouter:
         assert response.status_code == 200
         call_args = mock_conn.fetch.call_args[0]
         assert call_args[1] == "RJ"
+
+    @pytest.mark.asyncio
+    async def test_bairro_can_be_restricted_by_municipio(self, client: AsyncClient):
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=[
+            {"bairro": "CENTRO", "municipio": None, "municipio_descricao": None},
+        ])
+        pool = MagicMock()
+        pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch("routers.bairros.cache_get", AsyncMock(return_value=None)):
+            with patch("routers.bairros.cache_set", AsyncMock()):
+                with patch("routers.bairros.get_pool", AsyncMock(return_value=pool)):
+                    response = await client.get("/v1/bairros?uf=SP&q=centro&municipio=3550308")
+        assert response.status_code == 200
+        call_args = mock_conn.fetch.call_args[0]
+        assert call_args[3] == 3550308
+
+    @pytest.mark.asyncio
+    async def test_municipios_returns_empty_when_q_too_short(self, client: AsyncClient):
+        response = await client.get("/v1/municipios?uf=SP&q=s")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    @pytest.mark.asyncio
+    async def test_municipios_cache_hit_returns_data(self, client: AsyncClient):
+        cached = [{"codigo": 3550308, "descricao": "SAO PAULO", "total_estabelecimentos": 100}]
+        with patch("routers.bairros.cache_get", AsyncMock(return_value=cached)):
+            response = await client.get("/v1/municipios?uf=SP&q=sao")
+        assert response.status_code == 200
+        assert response.json() == cached
+
+    @pytest.mark.asyncio
+    async def test_municipios_cache_miss_fetches_from_lookup(self, client: AsyncClient):
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=[
+            {"codigo": 3550308, "descricao": "SAO PAULO", "total_estabelecimentos": 1200000},
+        ])
+        pool = MagicMock()
+        pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch("routers.bairros.cache_get", AsyncMock(return_value=None)):
+            with patch("routers.bairros.cache_set", AsyncMock()) as mock_cache_set:
+                with patch("routers.bairros.get_pool", AsyncMock(return_value=pool)):
+                    response = await client.get("/v1/municipios?uf=sp&q=sao")
+        assert response.status_code == 200
+        data = response.json()
+        assert data[0]["codigo"] == 3550308
+        call_args = mock_conn.fetch.call_args[0]
+        assert call_args[1] == "SP"
+        assert call_args[2] == "%SAO%"
+        mock_cache_set.assert_called_once()

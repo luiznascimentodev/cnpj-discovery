@@ -27,12 +27,13 @@ _SQL_CLAIM_CRAWL_REQUESTS = """
         SELECT id
         FROM paid_enrichment.crawl_requests
         WHERE next_run_at <= now()
+          AND $1::text <> ''
           AND (
                 status IN ('pending', 'retry')
-                OR (status = 'running' AND updated_at < now() - make_interval(secs => $2))
+                OR (status = 'running' AND updated_at < now() - make_interval(secs => $2::int))
           )
         ORDER BY priority DESC, next_run_at, id
-        LIMIT $3
+        LIMIT $3::int
         FOR UPDATE SKIP LOCKED
     )
     UPDATE paid_enrichment.crawl_requests cr

@@ -180,3 +180,20 @@ def build_prospecting_query(f: ProspectingFilters, *, include_limit: bool = True
     limit = f" LIMIT {f.limit}" if include_limit else ""
     sql = f"{_SELECT_SQL}{_FROM_SQL}{simples_join} {where} ORDER BY est.cnpj_basico, est.cnpj_ordem{limit}"
     return sql, params
+
+
+def build_enrichment_candidate_query(
+    f: ProspectingFilters,
+    *,
+    max_items: int,
+) -> tuple[str, list]:
+    """Build a bounded CNPJ-only query from the same filters used by prospecting."""
+    if max_items <= 0:
+        raise ValueError("max_items must be positive")
+    bounded_filters = f.model_copy(update={"limit": max_items})
+    sql, params = build_prospecting_query(bounded_filters)
+    return (
+        "SELECT cnpj_basico, cnpj_ordem, cnpj_dv "
+        f"FROM ({sql}) enrichment_candidates",
+        params,
+    )

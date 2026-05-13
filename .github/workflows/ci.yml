@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  enrichment:
+    name: Enrichment tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: enrichment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  etl:
+    name: ETL tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cnpj
+          POSTGRES_USER: cnpj_user
+          POSTGRES_PASSWORD: changeme
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cnpj_user -d cnpj"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: etl
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: cnpj
+      POSTGRES_USER: cnpj_user
+      POSTGRES_PASSWORD: changeme
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Apply database migrations
+        working-directory: .
+        env:
+          PGPASSWORD: changeme
+        run: |
+          for file in db/migrations/*.sql; do
+            psql -h localhost -U cnpj_user -d cnpj -v ON_ERROR_STOP=1 -f "$file"
+          done
+      - run: python -m pytest -q
+
+  frontend:
+    name: Frontend tests and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:coverage
+      - run: npm run build
+
+  docker-build:
+    name: Docker production build
+    runs-on: ubuntu-latest
+    needs: [api, enrichment, etl, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate production compose
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile demand-worker --profile domain-crawler config
+      - name: Build production images
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile demand-worker --profile domain-crawler build
+
+  deploy:
+    name: Deploy production VPS
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    concurrency:
+      group: production-vps
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deploy tools
+        run: sudo apt-get update && sudo apt-get install -y rsync openssh-client
+      - name: Configure SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+        run: |
+          test -n "$VPS_HOST"
+          test -n "$VPS_SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/cnpj_vps_deploy
+          chmod 600 ~/.ssh/cnpj_vps_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+      - name: Sync repository to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+        run: |
+          rsync -az --delete \
+            --exclude='.git/' \
+            --exclude='.env' \
+            --exclude='*.env' \
+            --exclude='node_modules/' \
+            --exclude='frontend/node_modules/' \
+            --exclude='data/' \
+            --exclude='storage/' \
+            --exclude='downloads/' \
+            --exclude='logs/' \
+            --exclude='__pycache__/' \
+            --exclude='.pytest_cache/' \
+            --exclude='htmlcov/' \
+            -e 'ssh -i ~/.ssh/cnpj_vps_deploy' \
+            ./ "${VPS_USER}@${VPS_HOST}:${VPS_APP_DIR}/"
+      - name: Restart production containers
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+        run: |
+          ssh -i ~/.ssh/cnpj_vps_deploy "${VPS_USER}@${VPS_HOST}" \
+            "cd '${VPS_APP_DIR}' && chmod +x scripts/deploy-production.sh && APP_DIR='${VPS_APP_DIR}' scripts/deploy-production.sh"
+      - name: Smoke test
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: curl -fsS "http://${VPS_HOST}/api/v1/health"

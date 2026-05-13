@@ -2,12 +2,19 @@ from datetime import datetime, timezone
 
 import pytest
 
-from api.schemas import AccessAuditEvent, EnqueueTargetRequest
+from api.schemas import (
+    AccessAuditEvent,
+    EnqueueTargetRequest,
+    FeedbackPayload,
+    SuppressionRequestPayload,
+)
 from repository import (
+    apply_contact_feedback,
     enqueue_target,
     fetch_enrichment_detail,
     fetch_evidence,
     insert_access_audit,
+    register_suppression,
 )
 
 
@@ -30,19 +37,36 @@ class FakePool:
         return FakeAcquire(self.conn)
 
 
+class FakeTransaction:
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+
 class FakeConnection:
-    def __init__(self, fetch_results=None):
+    def __init__(self, fetch_results=None, fetchrow_results=None):
         self.fetch_results = list(fetch_results or [])
+        self._fetchrow_results = list(fetchrow_results or [])
         self.fetch_calls = []
+        self.fetchrow_calls = []
         self.execute_calls = []
 
     async def fetch(self, query, *args):
         self.fetch_calls.append((query, args))
         return self.fetch_results.pop(0)
 
+    async def fetchrow(self, query, *args):
+        self.fetchrow_calls.append((query, args))
+        return self._fetchrow_results.pop(0) if self._fetchrow_results else None
+
     async def execute(self, query, *args):
         self.execute_calls.append((query, args))
         return "INSERT 0 1"
+
+    def transaction(self):
+        return FakeTransaction()
 
 
 class TestRepository:
@@ -174,4 +198,61 @@ class TestRepository:
             "hash",
             10,
         )
+
+    @pytest.mark.asyncio
+    async def test_register_suppression_writes_request_and_marks_existing(self):
+        conn = FakeConnection()
+        payload = SuppressionRequestPayload(
+            cnpj="12.345.678/0001-90",
+            contact_type="email",
+            normalized_value="contato@acme.com.br",
+            reason="LGPD removal",
+            requested_by="admin@cnpj-discovery",
+        )
+
+        response = await register_suppression(FakePool(conn), payload)
+
+        assert response.cnpj == "12345678000190"
+        assert response.suppressed is True
+        # 1) insert into suppression_requests, 2) update enriched_contacts
+        assert len(conn.execute_calls) == 2
+        first_query, first_args = conn.execute_calls[0]
+        assert "suppression_requests" in first_query
+        assert first_args[:5] == (
+            "12345678",
+            "0001",
+            "90",
+            "email",
+            "contato@acme.com.br",
+        )
+        second_query, _ = conn.execute_calls[1]
+        assert "UPDATE paid_enrichment.enriched_contacts" in second_query
+
+    @pytest.mark.asyncio
+    async def test_apply_contact_feedback_updates_status_and_confidence(self):
+        conn = FakeConnection(
+            fetchrow_results=[
+                {"id": 42, "status": "rejected", "confidence": 0},
+            ]
+        )
+        payload = FeedbackPayload(feedback="invalid")
+
+        response = await apply_contact_feedback(FakePool(conn), 42, payload)
+
+        assert response is not None
+        assert response.contact_id == 42
+        assert response.new_status == "rejected"
+        assert response.confidence == 0
+        # status passed to UPDATE matches feedback rules
+        assert conn.fetchrow_calls[0][1][1] == "rejected"
+
+    @pytest.mark.asyncio
+    async def test_apply_contact_feedback_returns_none_when_missing(self):
+        conn = FakeConnection(fetchrow_results=[None])
+
+        result = await apply_contact_feedback(
+            FakePool(conn), 99, FeedbackPayload(feedback="valid")
+        )
+
+        assert result is None
 

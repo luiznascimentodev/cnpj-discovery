@@ -9,7 +9,13 @@ import psycopg2
 import polars as pl
 
 from config import Settings
-from loader import get_connection, disable_triggers, enable_triggers, bulk_copy, upsert
+from loader import (
+    get_connection,
+    disable_triggers,
+    enable_triggers,
+    bulk_copy,
+    upsert,
+)
 
 
 @pytest.fixture(scope="module")

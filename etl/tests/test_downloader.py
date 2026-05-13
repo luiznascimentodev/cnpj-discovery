@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch, mock_open
 import pytest
 import httpx
 
-from downloader import RFFile, list_rf_files, _parse_propfind_response, download_file
+from downloader import RFFile, list_rf_files, _download_with_resume, _parse_propfind_response, download_file
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -211,7 +211,7 @@ class TestDownloadFile:
         result = download_file(sample_rf_file, str(new_dir))
         assert result.exists()
 
-    def test_deletes_partial_file_on_error(self, tmp_path, sample_rf_file, mocker):
+    def test_keeps_partial_file_on_error_for_resume(self, tmp_path, sample_rf_file, mocker):
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
         mock_response.iter_bytes = MagicMock(side_effect=ConnectionError("network error"))
@@ -224,9 +224,9 @@ class TestDownloadFile:
         partial.write_bytes(b"partial")
 
         with pytest.raises(ConnectionError):
-            download_file.__wrapped__(sample_rf_file, str(tmp_path))  # bypass retry
+            _download_with_resume.__wrapped__(sample_rf_file, partial)  # bypass retry
 
-        assert not partial.exists()
+        assert partial.exists()
 
     def test_returns_path_to_downloaded_file(self, tmp_path, sample_rf_file, mocker):
         mock_response = MagicMock()
@@ -240,7 +240,7 @@ class TestDownloadFile:
         assert isinstance(result, Path)
         assert result.name == "Empresas0.zip"
 
-    def test_no_partial_file_cleanup_when_file_does_not_exist(self, tmp_path, sample_rf_file, mocker):
+    def test_empty_partial_file_is_kept_for_resume_when_stream_fails(self, tmp_path, sample_rf_file, mocker):
         """Covers the branch where dest does not exist when exception is raised."""
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
@@ -251,7 +251,8 @@ class TestDownloadFile:
 
         # Do NOT pre-create the partial file — dest does not exist
         with pytest.raises(ConnectionError):
-            download_file.__wrapped__(sample_rf_file, str(tmp_path))
+            _download_with_resume.__wrapped__(sample_rf_file, tmp_path / sample_rf_file.name)
 
-        # File should still not exist
-        assert not (tmp_path / "Empresas0.zip").exists()
+        partial = tmp_path / "Empresas0.zip"
+        assert partial.exists()
+        assert partial.read_bytes() == b""

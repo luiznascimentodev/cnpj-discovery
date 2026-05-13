@@ -46,14 +46,14 @@ class TestResolution:
                 make_candidate(normalized_value="public@example.com.br"),
                 make_candidate(value="low@example.net", normalized_value="low@example.net", confidence=40),
             ],
-            verified_domains=set(),
+            verified_domains={"example.com.br"},
             public_normalized_values={"public@example.com.br"},
             min_confidence=80,
         )
 
         assert resolved == []
 
-    def test_resolve_contacts_publishes_threshold_contacts_and_dedupes_best(self):
+    def test_resolve_contacts_requires_verified_source_and_dedupes_best(self):
         low = make_candidate(confidence=78, extractor="visible_text")
         high = make_candidate(confidence=88, extractor="mailto")
         external = make_candidate(
@@ -74,7 +74,24 @@ class TestResolution:
 
         assert [contact.normalized_value for contact in resolved] == [
             "contato@example.com.br",
-            "https://instagram.com/example",
         ]
         assert resolved[0].source == "official_site"
-        assert resolved[1].source == "crawler"
+
+    def test_resolve_contacts_filters_unverified_high_confidence_contacts(self):
+        resolved = resolve_contacts(
+            [
+                make_candidate(
+                    value="social",
+                    normalized_value="https://instagram.com/example",
+                    contact_type="social",
+                    confidence=100,
+                    source_domain="other.com",
+                    extractor="social_link",
+                )
+            ],
+            verified_domains={"example.com.br"},
+            public_normalized_values=set(),
+            min_confidence=80,
+        )
+
+        assert resolved == []

@@ -30,6 +30,12 @@ _SQL_INSERT_RAW_CANDIDATE = """
     VALUES ($1, $2, $3, $4, $5, $6, $7)
 """
 
+_SQL_HAS_SUPPRESSION = """
+    SELECT 1 FROM paid_enrichment.suppression_requests
+    WHERE cnpj_basico = $1 AND cnpj_ordem = $2 AND cnpj_dv = $3
+      AND contact_type = $4 AND normalized_value = $5
+"""
+
 _SQL_UPSERT_ENRICHED_CONTACT = """
     INSERT INTO paid_enrichment.enriched_contacts (
         cnpj_basico, cnpj_ordem, cnpj_dv, contact_type, value, normalized_value,
@@ -106,6 +112,16 @@ async def publish_resolved_contacts(
         raw_written += 1
 
         if contact.confidence >= publish_threshold:
+            suppressed = await conn.fetchval(
+                _SQL_HAS_SUPPRESSION,
+                cnpj_basico,
+                cnpj_ordem,
+                cnpj_dv,
+                contact.contact_type,
+                contact.normalized_value,
+            )
+            if suppressed:
+                continue
             await conn.execute(
                 _SQL_UPSERT_ENRICHED_CONTACT,
                 cnpj_basico,

@@ -9,14 +9,19 @@ from resolver.publisher import (
 
 
 class FakeConnection:
-    def __init__(self, evidence_ids):
+    def __init__(self, evidence_ids, suppressed_results=None):
         self._evidence_ids = list(evidence_ids)
+        self._suppressed = list(suppressed_results or [])
         self.fetchval_calls = []
         self.execute_calls = []
 
     async def fetchval(self, query, *args):
         self.fetchval_calls.append((query, args))
-        return self._evidence_ids.pop(0)
+        if "enrichment_evidence" in query:
+            return self._evidence_ids.pop(0)
+        if "suppression_requests" in query:
+            return self._suppressed.pop(0) if self._suppressed else None
+        return None
 
     async def execute(self, query, *args):
         self.execute_calls.append((query, args))
@@ -120,3 +125,24 @@ class TestPublishResolvedContacts:
         evidence_args = conn.fetchval_calls[0][1]
         evidence_excerpt = evidence_args[9]
         assert len(evidence_excerpt) == 500
+
+    @pytest.mark.asyncio
+    async def test_suppressed_contact_is_not_published(self):
+        conn = FakeConnection(evidence_ids=[1], suppressed_results=[1])
+
+        stats = await publish_resolved_contacts(
+            conn,
+            cnpj_basico="12345678",
+            cnpj_ordem="0001",
+            cnpj_dv="90",
+            crawl_page_id=None,
+            contacts=[_contact(confidence=PUBLISH_THRESHOLD)],
+        )
+
+        assert stats.contacts_published == 0
+        # evidence + raw_candidate ainda são gravados para auditoria
+        assert stats.evidence_written == 1
+        assert stats.raw_candidates_written == 1
+        # nenhuma chamada de UPSERT enriched_contacts
+        upserts = [c for c in conn.execute_calls if "enriched_contacts" in c[0]]
+        assert upserts == []

@@ -7,15 +7,21 @@ from api.schemas import (
     EnqueueTargetResponse,
     EnrichmentDetailResponse,
     EvidenceResponse,
+    FeedbackPayload,
+    FeedbackResponse,
     ServiceStatusResponse,
+    SuppressionRequestPayload,
+    SuppressionResponse,
     normalize_cnpj,
 )
 from database import get_pool
 from repository import (
+    apply_contact_feedback,
     enqueue_target,
     fetch_enrichment_detail,
     fetch_evidence,
     insert_access_audit,
+    register_suppression,
 )
 
 router = APIRouter()
@@ -127,4 +133,62 @@ async def get_evidence(
         ),
     )
     return evidence
+
+
+@router.post(
+    "/enrichment/suppress",
+    response_model=SuppressionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["enrichment"],
+    summary="Suppress (remove) a published enriched contact",
+    dependencies=[Depends(require_internal_api_key)],
+)
+async def suppress_contact(payload: SuppressionRequestPayload) -> SuppressionResponse:
+    pool = await get_pool()
+    response = await register_suppression(pool, payload)
+    await insert_access_audit(
+        pool,
+        AccessAuditEvent(
+            account_id=payload.requested_by,
+            request_id=None,
+            route="/v1/enrichment/suppress",
+            action="admin",
+            cnpj=payload.cnpj,
+            record_count=1,
+        ),
+    )
+    return response
+
+
+@router.post(
+    "/enrichment/contact/{contact_id}/feedback",
+    response_model=FeedbackResponse,
+    tags=["enrichment"],
+    summary="Submit feedback for an enriched contact",
+    dependencies=[Depends(require_internal_api_key)],
+)
+async def submit_contact_feedback(
+    contact_id: int,
+    payload: FeedbackPayload,
+    account: AccountContext = Depends(require_account_context),
+) -> FeedbackResponse:
+    pool = await get_pool()
+    response = await apply_contact_feedback(pool, contact_id, payload)
+    if response is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Contact {contact_id} not found",
+        )
+    await insert_access_audit(
+        pool,
+        AccessAuditEvent(
+            account_id=account.account_id,
+            request_id=account.request_id,
+            route="/v1/enrichment/contact/{contact_id}/feedback",
+            action="feedback",
+            cnpj=None,
+            record_count=1,
+        ),
+    )
+    return response
 

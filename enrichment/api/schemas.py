@@ -114,3 +114,35 @@ class AccessAuditEvent(BaseModel):
     @classmethod
     def validate_optional_cnpj(cls, value: str | None) -> str | None:
         return normalize_cnpj(value) if value else value
+
+
+class SuppressionRequestPayload(BaseModel):
+    cnpj: str
+    contact_type: ContactType
+    normalized_value: str = Field(min_length=1, max_length=320)
+    reason: str = Field(min_length=1, max_length=500)
+    requested_by: str = Field(min_length=1, max_length=120)
+
+    @field_validator("cnpj")
+    @classmethod
+    def validate_cnpj(cls, value: str) -> str:
+        return normalize_cnpj(value)
+
+
+class SuppressionResponse(BaseModel):
+    cnpj: str
+    contact_type: ContactType
+    normalized_value: str
+    suppressed: Literal[True] = True
+
+
+class FeedbackPayload(BaseModel):
+    feedback: Literal["valid", "invalid", "bounced", "not_company"]
+    note: str | None = Field(default=None, max_length=500)
+
+
+class FeedbackResponse(BaseModel):
+    contact_id: int
+    feedback: Literal["valid", "invalid", "bounced", "not_company"]
+    new_status: Literal["active", "rejected", "suppressed"]
+    confidence: int = Field(ge=0, le=100)

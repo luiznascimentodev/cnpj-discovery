@@ -3,6 +3,7 @@ import re
 from fastapi import APIRouter, HTTPException
 
 from cache import cache_get, cache_set, make_cache_key
+from config import settings
 from database import get_pool
 from models.detail import EmpresaDetail
 
@@ -54,6 +55,23 @@ _SQL_CNAE_SECONDARY = """
     SELECT codigo, descricao FROM cnaes WHERE codigo = ANY($1::int[]) ORDER BY codigo
 """
 
+_SQL_CRAWLER_DOMAINS = """
+    SELECT domain, homepage_url, source, confidence, status, first_seen, last_seen
+    FROM paid_enrichment.company_domains
+    WHERE cnpj_basico = $1 AND cnpj_ordem = $2 AND cnpj_dv = $3
+      AND status IN ('candidate', 'verified')
+    ORDER BY confidence DESC, domain
+"""
+
+_SQL_CRAWLER_CONTACTS = """
+    SELECT
+        contact_type, value, normalized_value, label, source, confidence,
+        evidence_url, source_domain, first_seen, last_seen
+    FROM paid_enrichment.published_contacts
+    WHERE cnpj_basico = $1 AND cnpj_ordem = $2 AND cnpj_dv = $3
+    ORDER BY confidence DESC, contact_type, value
+"""
+
 _SPLIT_RE = re.compile(r"[\s,]+")
 
 
@@ -103,6 +121,23 @@ async def get_empresa(cnpj: str):
         data["socios"] = [dict(r) for r in await conn.fetch(_SQL_SOCIOS, basico)]
         simples_row = await conn.fetchrow(_SQL_SIMPLES, basico)
         data["simples"] = dict(simples_row) if simples_row else None
+
+        crawler_domains = [
+            dict(r) for r in await conn.fetch(_SQL_CRAWLER_DOMAINS, basico, ordem, dv)
+        ]
+        crawler_contacts = [
+            dict(r) for r in await conn.fetch(_SQL_CRAWLER_CONTACTS, basico, ordem, dv)
+        ]
+        has_paid = bool(crawler_domains or crawler_contacts)
+        data["enrichment_available"] = has_paid
+        data["enrichment_required_feature"] = (
+            settings.paid_contact_feature_key if has_paid else None
+        )
+        data["crawler_enrichment"] = {
+            "status": "done" if has_paid else "not_enriched",
+            "domains": crawler_domains,
+            "contacts": crawler_contacts,
+        }
 
     await cache_set(cache_key, data, ttl=_DETAIL_TTL)
     return data

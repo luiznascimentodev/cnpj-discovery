@@ -248,6 +248,87 @@ services:
     profiles:
       - worker-p2
 
+  enrichment-demand-worker:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      BRASILAPI_ENABLED: "${BRASILAPI_ENABLED:-true}"
+      BRAVE_SEARCH_API_KEY: "${BRAVE_SEARCH_API_KEY:-}"
+      SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
+      DISCOVERY_CONCURRENCY: "${ENRICHMENT_DEMAND_CONCURRENCY:-2}"
+    command:
+      - python
+      - cli.py
+      - demand-worker
+      - --batch-size
+      - "${ENRICHMENT_DEMAND_BATCH:-20}"
+      - --concurrency
+      - "${ENRICHMENT_DEMAND_CONCURRENCY:-2}"
+      - --interval
+      - "${ENRICHMENT_DEMAND_INTERVAL:-5}"
+      - --lease-seconds
+      - "${ENRICHMENT_LEASE_SECONDS:-600}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'demand-worker'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - demand-worker
+
+  enrichment-trickle-worker:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      BRASILAPI_ENABLED: "${BRASILAPI_ENABLED:-true}"
+      SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
+      DISCOVERY_CONCURRENCY: "${ENRICHMENT_TRICKLE_CONCURRENCY:-1}"
+    command:
+      - python
+      - cli.py
+      - trickle-worker
+      - --seed-batch-size
+      - "${ENRICHMENT_TRICKLE_SEED_BATCH:-25}"
+      - --discovery-batch-size
+      - "${ENRICHMENT_TRICKLE_BATCH:-5}"
+      - --crawl-batch-size
+      - "${ENRICHMENT_TRICKLE_BATCH:-5}"
+      - --concurrency
+      - "${ENRICHMENT_TRICKLE_CONCURRENCY:-1}"
+      - --interval
+      - "${ENRICHMENT_TRICKLE_INTERVAL:-120}"
+      - --lease-seconds
+      - "${ENRICHMENT_LEASE_SECONDS:-600}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'trickle-worker'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - trickle-worker
+
   # Domain-first crawler worker (Phase 4+ of scale plan)
   # Scale independently: docker compose up -d --scale domain-crawler-worker=4
   domain-crawler-worker:
@@ -270,6 +351,8 @@ services:
       - "${ENRICHMENT_LEASE_SECONDS:-600}"
       - --interval
       - "${DOMAIN_CRAWLER_INTERVAL:-30}"
+      - --enqueue-batch-size
+      - "${DOMAIN_CRAWLER_ENQUEUE_BATCH:-25}"
     depends_on:
       postgres:
         condition: service_healthy

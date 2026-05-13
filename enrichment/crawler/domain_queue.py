@@ -273,16 +273,26 @@ async def enqueue_domain_jobs_for_domain(
     priority: int,
     crawl_profile: str = "static_http",
     paths: list[str] | None = None,
+    urls: list[str] | None = None,
 ) -> int:
-    """Enqueue canonical paths for a verified domain. Returns count inserted."""
-    if paths is None:
-        paths = CANONICAL_PATHS
-    base = homepage_url or f"https://{domain}"
-    base = base.rstrip("/")
+    """Enqueue jobs for a verified domain. Returns count inserted.
+
+    Resolution order for the URL list:
+    1. If `urls` is provided, use it as-is (sitemap-discovered URLs from caller).
+    2. If `paths` is provided, build URLs by joining each path to `homepage_url`.
+    3. Otherwise default to CANONICAL_PATHS (legacy guessing — keeps backward compat).
+    """
+    base = (homepage_url or f"https://{domain}").rstrip("/")
+    if urls is None:
+        if paths is None:
+            paths = CANONICAL_PATHS
+        urls = [
+            base + path if path != "/" else base + "/"
+            for path in paths
+        ]
     inserted = 0
     async with pool.acquire() as conn:
-        for path in paths:
-            url = base + path if path != "/" else base + "/"
+        for url in urls:
             row = await conn.fetchrow(
                 _SQL_ENQUEUE_DOMAIN_JOBS,
                 domain,
@@ -335,8 +345,16 @@ async def enqueue_jobs_from_verified_domains(
     crawl_profile: str = "static_http",
     batch_size: int = 1000,
     cursor_id: int = 0,
+    url_discoverer=None,
 ) -> tuple[int, int]:
-    """Iterate verified company_domains and enqueue jobs. Returns (domains_seen, jobs_inserted)."""
+    """Iterate verified company_domains and enqueue jobs. Returns (domains_seen, jobs_inserted).
+
+    `url_discoverer`, if provided, is an async callable
+    `async (homepage_url: str) -> list[str]` that returns the URLs to enqueue
+    for a given domain (e.g. sitemap-driven). When omitted, the legacy
+    CANONICAL_PATHS heuristic is used — but in production callers should pass
+    a real discoverer to avoid the path-guessing 404 storm.
+    """
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             _SQL_ENQUEUE_FROM_VERIFIED_DOMAINS, cursor_id, batch_size
@@ -345,13 +363,21 @@ async def enqueue_jobs_from_verified_domains(
     jobs_inserted = 0
     for row in rows:
         domains_seen += 1
+        domain = row["domain"]
+        homepage_url = row["homepage_url"] or f"https://{domain}"
+        urls: list[str] | None = None
+        if url_discoverer is not None:
+            urls = await url_discoverer(homepage_url)
+            if not urls:
+                urls = [homepage_url.rstrip("/") + "/"]
         count = await enqueue_domain_jobs_for_domain(
             pool,
-            domain=row["domain"],
-            homepage_url=row["homepage_url"],
+            domain=domain,
+            homepage_url=homepage_url,
             source=source,
             priority=priority,
             crawl_profile=crawl_profile,
+            urls=urls,
         )
         jobs_inserted += count
     return domains_seen, jobs_inserted

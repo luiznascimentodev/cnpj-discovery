@@ -178,3 +178,21 @@ class TestSchemas:
         )
         assert event.cnpj is None
 
+    def test_suppression_payload_normalizes_cnpj(self):
+        from api.schemas import SuppressionRequestPayload
+
+        payload = SuppressionRequestPayload(
+            cnpj="12.345.678/0001-90",
+            contact_type="email",
+            normalized_value="x@y.com",
+            reason="LGPD",
+            requested_by="admin",
+        )
+        assert payload.cnpj == "12345678000190"
+
+    def test_feedback_payload_rejects_unknown_label(self):
+        from api.schemas import FeedbackPayload
+
+        with pytest.raises(ValidationError):
+            FeedbackPayload(feedback="bogus")
+

@@ -45,6 +45,8 @@ def resolve_contacts(
     for candidate in candidates:
         if candidate.normalized_value in public_normalized_values:
             continue
+        if candidate.source_domain not in verified_domains:
+            continue
 
         confidence = score_contact(candidate, verified_domains=verified_domains)
         if confidence < min_confidence:

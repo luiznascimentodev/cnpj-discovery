@@ -10,6 +10,7 @@ export interface BairroSelection {
 
 interface Props {
   uf: string
+  municipio?: number
   value: string
   onChange: (selection: BairroSelection) => void
 }
@@ -18,12 +19,9 @@ function labelFor(item: BairroItem): string {
   return item.municipio_descricao ? `${item.bairro} · ${item.municipio_descricao}` : item.bairro
 }
 
-export function BairroAutocomplete({ uf, value, onChange }: Props) {
-  const [q, setQ] = useState(value)
+export function BairroAutocomplete({ uf, municipio, value, onChange }: Props) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => { setQ(value) }, [value])
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -34,22 +32,20 @@ export function BairroAutocomplete({ uf, value, onChange }: Props) {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const trimmed = q.trim()
+  const trimmed = value.trim()
   const { data = [] } = useQuery({
-    queryKey: ['bairros', uf, trimmed],
-    queryFn: () => getBairros(uf, trimmed),
+    queryKey: ['bairros', uf, municipio, trimmed],
+    queryFn: () => getBairros(uf, trimmed, municipio),
     enabled: !!uf && trimmed.length >= 2,
     staleTime: 1000 * 60 * 60,
   })
 
   const handleInput = (v: string) => {
-    setQ(v)
     setOpen(true)
-    if (!v.trim()) onChange({ bairro: '' })
+    onChange({ bairro: v.trim() ? v : '' })
   }
 
   const handleSelect = (item: BairroItem) => {
-    setQ(labelFor(item))
     onChange({
       bairro: item.bairro,
       ...(item.municipio !== null && { municipio: item.municipio }),
@@ -63,7 +59,7 @@ export function BairroAutocomplete({ uf, value, onChange }: Props) {
     <div ref={containerRef} className="relative">
       <input
         type="text"
-        value={q}
+        value={value}
         disabled={disabled}
         onChange={e => handleInput(e.target.value)}
         onFocus={() => data.length > 0 && setOpen(true)}

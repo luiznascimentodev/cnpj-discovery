@@ -17,6 +17,8 @@ from cli import (
     cmd_enqueue_playwright_jobs,
     cmd_playwright_crawler,
     cmd_release_stale,
+    cmd_demand_worker,
+    cmd_trickle_worker,
     cmd_resolve_domain,
     cmd_seed,
     cmd_seed_phase1,
@@ -27,9 +29,11 @@ from cli import (
     do_discovery,
     do_one_loop,
     do_release_stale,
+    do_demand_tick,
     do_seed,
     do_seed_phase1,
     do_seed_phase2,
+    do_trickle_loop,
     main,
 )
 from crawler.domain_runner import DomainRunStats
@@ -157,10 +161,166 @@ class TestDoFunctions:
         with (
             patch("cli.release_stale_locks", new_callable=AsyncMock, return_value=2),
             patch("cli.release_stale_requests", new_callable=AsyncMock, return_value=3),
+            patch("cli.release_stale_demand_items", new_callable=AsyncMock, return_value=4),
         ):
             total = await do_release_stale(object(), lease_seconds=300)
 
-        assert total == 5
+        assert total == 9
+
+    @pytest.mark.asyncio
+    async def test_do_demand_tick_processes_items(self):
+        from demand_queue import DemandItem
+
+        item = DemandItem(
+            id=1,
+            job_id=10,
+            account_id="acct",
+            cnpj_basico="12345678",
+            cnpj_ordem="0001",
+            cnpj_dv="90",
+            attempts=1,
+            priority=1000,
+        )
+        with (
+            patch("cli.claim_demand_items", new_callable=AsyncMock, return_value=[item]),
+            patch("cli.discover_target", new_callable=AsyncMock, return_value=DiscoveryOutcome(cnpj=item.cnpj, domains_seen=1, crawl_requests_created=0)),
+            patch("cli.count_published_contacts", new_callable=AsyncMock, return_value=2),
+            patch("cli.complete_demand_item", new_callable=AsyncMock) as complete,
+            patch("cli._build_external_search", return_value=object()),
+        ):
+            async with _stub_client() as client:
+                done, failed = await do_demand_tick(
+                    object(),
+                    client=client,
+                    worker_id="w",
+                    batch_size=5,
+                    lease_seconds=600,
+                    concurrency=1,
+                )
+
+        assert (done, failed) == (1, 0)
+        assert complete.await_args.kwargs["status"] == "enriched"
+
+    @pytest.mark.asyncio
+    async def test_do_demand_tick_returns_zero_when_empty(self):
+        with patch("cli.claim_demand_items", new_callable=AsyncMock, return_value=[]):
+            async with _stub_client() as client:
+                result = await do_demand_tick(
+                    object(),
+                    client=client,
+                    worker_id="w",
+                    batch_size=5,
+                    lease_seconds=600,
+                    concurrency=1,
+                )
+
+        assert result == (0, 0)
+
+    @pytest.mark.asyncio
+    async def test_do_demand_tick_handles_search_rate_limit(self):
+        from demand_queue import DemandItem
+
+        item = DemandItem(
+            id=1,
+            job_id=10,
+            account_id="acct",
+            cnpj_basico="12345678",
+            cnpj_ordem="0001",
+            cnpj_dv="90",
+            attempts=1,
+            priority=1000,
+        )
+        with (
+            patch("cli.claim_demand_items", new_callable=AsyncMock, return_value=[item]),
+            patch("cli.discover_target", new_callable=AsyncMock, side_effect=SearchRateLimitError("brave", retry_after=120)),
+            patch("cli.complete_demand_item", new_callable=AsyncMock) as complete,
+        ):
+            cli._source_backoffs.clear()
+            async with _stub_client() as client:
+                done, failed = await do_demand_tick(
+                    object(),
+                    client=client,
+                    worker_id="w",
+                    batch_size=5,
+                    lease_seconds=600,
+                    concurrency=1,
+                )
+
+        assert (done, failed) == (0, 1)
+        assert "brave" in cli._source_backoffs
+        assert complete.await_args.kwargs["status"] == "failed_retryable"
+
+    @pytest.mark.asyncio
+    async def test_do_demand_tick_retries_failures(self):
+        from demand_queue import DemandItem
+
+        item = DemandItem(
+            id=1,
+            job_id=10,
+            account_id="acct",
+            cnpj_basico="12345678",
+            cnpj_ordem="0001",
+            cnpj_dv="90",
+            attempts=1,
+            priority=1000,
+        )
+        with (
+            patch("cli.claim_demand_items", new_callable=AsyncMock, return_value=[item]),
+            patch("cli.discover_target", new_callable=AsyncMock, side_effect=RuntimeError("boom")),
+            patch("cli.complete_demand_item", new_callable=AsyncMock) as complete,
+        ):
+            async with _stub_client() as client:
+                done, failed = await do_demand_tick(
+                    object(),
+                    client=client,
+                    worker_id="w",
+                    batch_size=5,
+                    lease_seconds=600,
+                    concurrency=1,
+                )
+
+        assert (done, failed) == (0, 1)
+        assert complete.await_args.kwargs["status"] == "failed_retryable"
+
+    @pytest.mark.asyncio
+    async def test_do_trickle_loop_skips_when_demand_waits(self):
+        args = SimpleNamespace(lease_seconds=600)
+        with (
+            patch("cli.has_pending_demand", new_callable=AsyncMock, return_value=True),
+            patch("cli.do_release_stale", new_callable=AsyncMock, return_value=2),
+        ):
+            async with _stub_client() as client:
+                stats = await do_trickle_loop(object(), client, args)
+
+        assert stats.leases_released == 2
+        assert stats.seeded == 0
+
+    @pytest.mark.asyncio
+    async def test_do_trickle_loop_runs_low_priority_work(self):
+        args = SimpleNamespace(
+            reason="trickle",
+            priority=10,
+            seed_batch_size=25,
+            worker_id="w",
+            discovery_batch_size=5,
+            crawl_batch_size=5,
+            lease_seconds=600,
+            user_agent="UA",
+            concurrency=1,
+        )
+        with (
+            patch("cli.has_pending_demand", new_callable=AsyncMock, return_value=False),
+            patch("cli.do_release_stale", new_callable=AsyncMock, return_value=1),
+            patch("cli.do_seed", new_callable=AsyncMock, return_value=25),
+            patch("cli.do_discovery", new_callable=AsyncMock, return_value=(5, 3)),
+            patch("cli.do_crawler", new_callable=AsyncMock, return_value=(2, 2)),
+            patch("cli._build_external_search", return_value=object()),
+        ):
+            async with _stub_client() as client:
+                stats = await do_trickle_loop(object(), client, args)
+
+        assert stats.seeded == 25
+        assert stats.contacts_published == 2
 
     @pytest.mark.asyncio
     async def test_do_one_loop_aggregates_stats(self):
@@ -257,17 +417,104 @@ class TestCommandWrappers:
             crawl_batch_size=5,
             lease_seconds=600,
             max_iters=2,
+            phase=0,
         )
         empty_stats = TickStats()
         with (
             patch("cli.create_pool", AsyncMock(return_value=object())),
             patch("cli.close_pool", new_callable=AsyncMock),
             patch("cli.do_one_loop", AsyncMock(return_value=empty_stats)) as loop,
+            patch("cli.heartbeat_beat", new_callable=AsyncMock),
+            patch("cli.heartbeat_remove", new_callable=AsyncMock),
             patch("cli.asyncio.sleep", new_callable=AsyncMock),
         ):
             await cmd_worker(args)
 
         assert loop.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_cmd_worker_phase1_role(self):
+        args = SimpleNamespace(
+            user_agent="UA", worker_id="w", reason="r", priority=50, interval=0,
+            seed_batch_size=10, discovery_batch_size=5, crawl_batch_size=0,
+            lease_seconds=600, max_iters=1, phase=1,
+        )
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.do_one_loop", AsyncMock(return_value=TickStats())),
+            patch("cli.heartbeat_beat", new_callable=AsyncMock) as hb,
+            patch("cli.heartbeat_remove", new_callable=AsyncMock),
+            patch("cli.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await cmd_worker(args)
+        call_kwargs = hb.await_args.kwargs
+        assert call_kwargs["role"] == "enrichment-phase1"
+
+    @pytest.mark.asyncio
+    async def test_cmd_demand_worker_runs_max_iters(self):
+        args = SimpleNamespace(
+            user_agent="UA",
+            worker_id="w",
+            batch_size=5,
+            concurrency=1,
+            lease_seconds=600,
+            interval=0,
+            release_every=1,
+            max_iters=2,
+        )
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.do_demand_tick", AsyncMock(return_value=(1, 0))) as tick,
+            patch("cli.do_release_stale", AsyncMock(return_value=0)),
+            patch("cli.heartbeat_beat", new_callable=AsyncMock),
+            patch("cli.heartbeat_remove", new_callable=AsyncMock),
+            patch("cli.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await cmd_demand_worker(args)
+
+        assert tick.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_cmd_demand_worker_skips_release_between_intervals(self):
+        args = SimpleNamespace(
+            user_agent="UA",
+            worker_id="w",
+            batch_size=5,
+            concurrency=1,
+            lease_seconds=600,
+            interval=0,
+            release_every=5,
+            max_iters=2,
+        )
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.do_demand_tick", AsyncMock(return_value=(0, 0))),
+            patch("cli.do_release_stale", AsyncMock(return_value=0)) as release,
+            patch("cli.heartbeat_beat", new_callable=AsyncMock),
+            patch("cli.heartbeat_remove", new_callable=AsyncMock),
+            patch("cli.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await cmd_demand_worker(args)
+
+        assert release.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cmd_trickle_worker_runs_max_iters(self):
+        args = SimpleNamespace(user_agent="UA", worker_id="w", interval=0, max_iters=2)
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.do_trickle_loop", AsyncMock(return_value=TickStats())) as tick,
+            patch("cli.heartbeat_beat", new_callable=AsyncMock),
+            patch("cli.heartbeat_remove", new_callable=AsyncMock),
+            patch("cli.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await cmd_trickle_worker(args)
+
+        assert tick.await_count == 2
 
 
 class TestNewDomainCommands:
@@ -285,24 +532,101 @@ class TestNewDomainCommands:
     async def test_cmd_domain_crawler_tick(self):
         args = SimpleNamespace(
             user_agent="UA", worker_id="w", batch_size=10, lease_seconds=600,
-            interval=0, max_iters=2,
+            interval=0, max_iters=2, enqueue_batch_size=50,
         )
         stats = DomainRunStats(
             jobs_claimed=3, pages_fetched=3, contacts_extracted=5,
             jobs_done=3, jobs_retried=0, jobs_blocked=0, jobs_errored=0,
             budget_skipped=0,
         )
+
+        async def fake_enqueue(*args, **kwargs):
+            urls = await kwargs["url_discoverer"]("https://x.com")
+            assert urls == ["https://x.com/", "https://x.com/contato"]
+            return 5, 25
+
         with (
             patch("cli.create_pool", AsyncMock(return_value=object())),
             patch("cli.close_pool", new_callable=AsyncMock),
             patch("cli.run_domain_batch", AsyncMock(return_value=stats)),
+            patch("cli.enqueue_jobs_from_verified_domains",
+                  AsyncMock(side_effect=fake_enqueue)),
+            patch("cli.discover_crawl_urls",
+                  AsyncMock(return_value=["https://x.com/", "https://x.com/contato"])),
+            patch("cli._max_company_domain_id_seen",
+                  AsyncMock(return_value=42)),
+            patch("cli.heartbeat_beat", new_callable=AsyncMock),
+            patch("cli.heartbeat_remove", new_callable=AsyncMock),
             patch("cli.asyncio.sleep", new_callable=AsyncMock),
         ):
             await cmd_domain_crawler(args)
 
     @pytest.mark.asyncio
+    async def test_cmd_domain_crawler_tick_resets_cursor_when_empty(self):
+        args = SimpleNamespace(
+            user_agent="UA", worker_id="w", batch_size=10, lease_seconds=600,
+            interval=0, max_iters=1, enqueue_batch_size=50,
+        )
+        stats = DomainRunStats(
+            jobs_claimed=0, pages_fetched=0, contacts_extracted=0,
+            jobs_done=0, jobs_retried=0, jobs_blocked=0, jobs_errored=0,
+            budget_skipped=0,
+        )
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.run_domain_batch", AsyncMock(return_value=stats)),
+            patch("cli.enqueue_jobs_from_verified_domains",
+                  AsyncMock(return_value=(0, 0))),
+            patch("cli._max_company_domain_id_seen",
+                  AsyncMock(return_value=99)),
+            patch("cli.heartbeat_beat", new_callable=AsyncMock),
+            patch("cli.heartbeat_remove", new_callable=AsyncMock),
+            patch("cli.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await cmd_domain_crawler(args)
+
+    @pytest.mark.asyncio
+    async def test_max_company_domain_id_seen_returns_max(self):
+        from cli import _max_company_domain_id_seen
+
+        class FakeConn:
+            async def fetchrow(self, q, *args):
+                return {"max_id": 1234}
+
+        class FakeAcquire:
+            async def __aenter__(self): return FakeConn()
+            async def __aexit__(self, *a): return False
+
+        class FakePool:
+            def acquire(self): return FakeAcquire()
+
+        result = await _max_company_domain_id_seen(FakePool(), after_id=10, limit=100)
+        assert result == 1234
+
+    @pytest.mark.asyncio
+    async def test_max_company_domain_id_seen_returns_after_id_when_null(self):
+        from cli import _max_company_domain_id_seen
+
+        class FakeConn:
+            async def fetchrow(self, q, *args):
+                return {"max_id": None}
+
+        class FakeAcquire:
+            async def __aenter__(self): return FakeConn()
+            async def __aexit__(self, *a): return False
+
+        class FakePool:
+            def acquire(self): return FakeAcquire()
+
+        result = await _max_company_domain_id_seen(FakePool(), after_id=77, limit=100)
+        assert result == 77
+
+    @pytest.mark.asyncio
     async def test_cmd_resolve_domain_tick(self):
-        args = SimpleNamespace(batch_size=500, cursor_id=0, interval=0, max_iters=2)
+        args = SimpleNamespace(
+            worker_id="rw", batch_size=500, cursor_id=0, interval=0, max_iters=2,
+        )
         stats = ResolveStats(
             domains_processed=2, contacts_published=10,
             contacts_suppressed=1, contacts_below_threshold=3,
@@ -311,9 +635,30 @@ class TestNewDomainCommands:
             patch("cli.create_pool", AsyncMock(return_value=object())),
             patch("cli.close_pool", new_callable=AsyncMock),
             patch("cli.resolve_domain_contacts", AsyncMock(return_value=stats)),
+            patch("cli.heartbeat_beat", new_callable=AsyncMock),
+            patch("cli.heartbeat_remove", new_callable=AsyncMock),
             patch("cli.asyncio.sleep", new_callable=AsyncMock),
         ):
             await cmd_resolve_domain(args)
+
+    @pytest.mark.asyncio
+    async def test_cmd_resolve_domain_tick_defaults_worker_id(self):
+        args = SimpleNamespace(batch_size=500, cursor_id=0, interval=0, max_iters=1)
+        stats = ResolveStats(
+            domains_processed=0, contacts_published=0,
+            contacts_suppressed=0, contacts_below_threshold=0,
+        )
+        with (
+            patch("cli.create_pool", AsyncMock(return_value=object())),
+            patch("cli.close_pool", new_callable=AsyncMock),
+            patch("cli.resolve_domain_contacts", AsyncMock(return_value=stats)),
+            patch("cli.heartbeat_beat", new_callable=AsyncMock) as hb,
+            patch("cli.heartbeat_remove", new_callable=AsyncMock),
+            patch("cli.asyncio.sleep", new_callable=AsyncMock),
+            patch("cli.default_worker_id", return_value="auto-id"),
+        ):
+            await cmd_resolve_domain(args)
+        assert hb.await_args.kwargs["worker_id"] == "auto-id"
 
     def test_parser_enqueue_domain_jobs(self):
         args = build_parser().parse_args(["enqueue-domain-jobs", "--batch-size", "500"])
@@ -333,6 +678,13 @@ class TestNewDomainCommands:
         assert args.cursor_id == 100
         assert args.interval == DEFAULT_INTERVAL_SECONDS
         assert args.max_iters == 0
+        assert hasattr(args, "worker_id")
+
+    def test_parser_domain_crawler_tick_enqueue_batch(self):
+        args = build_parser().parse_args(
+            ["domain-crawler-tick", "--enqueue-batch-size", "500"]
+        )
+        assert args.enqueue_batch_size == 500
 
 
 class TestPlaywrightCommands:
@@ -570,6 +922,18 @@ class TestNewPhaseCommands:
     def test_parser_worker_phase_default(self):
         args = build_parser().parse_args(["worker", "--max-iters", "1"])
         assert args.phase == 0
+
+    def test_parser_demand_worker(self):
+        args = build_parser().parse_args(["demand-worker", "--batch-size", "7"])
+        assert args.command == "demand-worker"
+        assert args.batch_size == 7
+        assert args.concurrency == 2
+
+    def test_parser_trickle_worker(self):
+        args = build_parser().parse_args(["trickle-worker", "--interval", "60"])
+        assert args.command == "trickle-worker"
+        assert args.interval == 60
+        assert args.priority == 10
 
     @pytest.mark.asyncio
     async def test_cmd_seed_phase1_runs(self):

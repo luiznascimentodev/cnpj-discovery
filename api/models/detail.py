@@ -1,6 +1,6 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CnaeItem(BaseModel):
@@ -24,6 +24,35 @@ class SimplesOut(BaseModel):
     opcao_mei: Optional[str] = None
     data_opcao_mei: Optional[date] = None
     data_exc_mei: Optional[date] = None
+
+
+class CrawlerDomainOut(BaseModel):
+    domain: str
+    homepage_url: Optional[str] = None
+    source: str
+    confidence: int
+    status: str
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+
+
+class CrawlerContactOut(BaseModel):
+    contact_type: str
+    value: str
+    normalized_value: str
+    label: Optional[str] = None
+    source: str
+    confidence: int
+    evidence_url: Optional[str] = None
+    source_domain: Optional[str] = None
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+
+
+class CrawlerEnrichmentOut(BaseModel):
+    status: str = "not_enriched"
+    domains: list[CrawlerDomainOut] = Field(default_factory=list)
+    contacts: list[CrawlerContactOut] = Field(default_factory=list)
 
 
 class EmpresaDetail(BaseModel):
@@ -57,6 +86,9 @@ class EmpresaDetail(BaseModel):
     fax: Optional[str] = None
     cnae_principal: Optional[int] = None
     cnae_principal_descricao: Optional[str] = None
-    cnae_secundarios: list[CnaeItem] = []
-    socios: list[SocioOut] = []
+    cnae_secundarios: list[CnaeItem] = Field(default_factory=list)
+    socios: list[SocioOut] = Field(default_factory=list)
     simples: Optional[SimplesOut] = None
+    enrichment_available: bool = False
+    enrichment_required_feature: Optional[str] = None
+    crawler_enrichment: CrawlerEnrichmentOut = Field(default_factory=CrawlerEnrichmentOut)

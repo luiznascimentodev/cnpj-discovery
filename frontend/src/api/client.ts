@@ -4,6 +4,11 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/v1',
 })
 
+const paidHeaders = () => ({
+  'X-Account-Id': import.meta.env.VITE_ACCOUNT_ID || 'development-account',
+  'X-User-Id': import.meta.env.VITE_USER_ID || 'development-user',
+})
+
 export interface EmpresaOut {
   cnpj_basico: string
   cnpj_ordem: string
@@ -53,6 +58,35 @@ export interface SimplesOut {
   data_exc_mei: string | null
 }
 
+export interface CrawlerDomainOut {
+  domain: string
+  homepage_url: string | null
+  source: string
+  confidence: number
+  status: string
+  first_seen: string | null
+  last_seen: string | null
+}
+
+export interface CrawlerContactOut {
+  contact_type: string
+  value: string
+  normalized_value: string
+  label: string | null
+  source: string
+  confidence: number
+  evidence_url: string | null
+  source_domain: string | null
+  first_seen: string | null
+  last_seen: string | null
+}
+
+export interface CrawlerEnrichmentOut {
+  status: string
+  domains: CrawlerDomainOut[]
+  contacts: CrawlerContactOut[]
+}
+
 export interface EmpresaDetail {
   cnpj_basico: string
   cnpj_ordem: string
@@ -87,6 +121,9 @@ export interface EmpresaDetail {
   cnae_secundarios: CnaeItem[]
   socios: SocioOut[]
   simples: SimplesOut | null
+  enrichment_available: boolean
+  enrichment_required_feature: string | null
+  crawler_enrichment: CrawlerEnrichmentOut
 }
 
 export interface Filters {
@@ -108,6 +145,58 @@ export interface Filters {
   cursor_cnpj_basico?: string
   cursor_cnpj_ordem?: string
   limit?: number
+}
+
+export interface EnrichmentEstimateRequest {
+  cnpjs?: string[]
+  filters?: Filters
+  max_items?: number
+  stale_after_days?: number
+}
+
+export interface EnrichmentEstimateResponse {
+  source_type: 'selection' | 'filter'
+  requested_count: number
+  eligible_count: number
+  cache_hit_count: number
+  new_count: number
+  skipped_inactive_count: number
+  cost_credits: number
+  estimated_seconds_min: number
+  estimated_seconds_max: number
+}
+
+export interface EnrichmentJobResponse extends EnrichmentEstimateResponse {
+  job_id: number
+  status: string
+  idempotency_key: string | null
+  created_at: string | null
+}
+
+export interface EnrichmentJobSummary {
+  id: number
+  status: string
+  source_type: 'selection' | 'filter'
+  requested_count: number
+  accepted_count: number
+  cache_hit_count: number
+  skipped_count: number
+  failed_count: number
+  ready_count: number
+  cost_credits: number
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  cancelled_at: string | null
+}
+
+export interface EnrichmentJobItem {
+  cnpj: string
+  status: string
+  result_source: string | null
+  attempts: number
+  last_error: string | null
+  updated_at: string | null
 }
 
 export interface StatusResponse {
@@ -151,14 +240,43 @@ export interface BairroItem {
   municipio_descricao: string | null
 }
 
-export const getBairros = (uf: string, q: string): Promise<BairroItem[]> =>
-  api.get<BairroItem[]>('/bairros', { params: { uf, q } }).then(r => r.data)
+export interface MunicipioItem {
+  codigo: number
+  descricao: string
+  total_estabelecimentos: number
+}
+
+export const getBairros = (uf: string, q: string, municipio?: number): Promise<BairroItem[]> =>
+  api.get<BairroItem[]>('/bairros', { params: { uf, q, municipio } }).then(r => r.data)
+
+export const getMunicipios = (uf: string, q: string): Promise<MunicipioItem[]> =>
+  api.get<MunicipioItem[]>('/municipios', { params: { uf, q } }).then(r => r.data)
 
 export const getCnaes = (): Promise<CnaeGroup[]> =>
   api.get<{ segments: CnaeGroup[] }>('/cnaes').then(r => r.data.segments)
 
 export const getStatus = (): Promise<StatusResponse> =>
   api.get<StatusResponse>('/status').then(r => r.data)
+
+export const estimateEnrichment = (payload: EnrichmentEstimateRequest): Promise<EnrichmentEstimateResponse> =>
+  api.post<EnrichmentEstimateResponse>('/paid/enrichment/estimate', payload, { headers: paidHeaders() }).then(r => r.data)
+
+export const createEnrichmentJob = (payload: EnrichmentEstimateRequest): Promise<EnrichmentJobResponse> =>
+  api.post<EnrichmentJobResponse>('/paid/enrichment/jobs', payload, {
+    headers: {
+      ...paidHeaders(),
+      'Idempotency-Key': `job-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    },
+  }).then(r => r.data)
+
+export const listEnrichmentJobs = (): Promise<EnrichmentJobSummary[]> =>
+  api.get<{ jobs: EnrichmentJobSummary[] }>('/paid/enrichment/jobs', { headers: paidHeaders() }).then(r => r.data.jobs)
+
+export const listEnrichmentJobItems = (jobId: number): Promise<EnrichmentJobItem[]> =>
+  api.get<{ items: EnrichmentJobItem[] }>(`/paid/enrichment/jobs/${jobId}/items`, { headers: paidHeaders() }).then(r => r.data.items)
+
+export const cancelEnrichmentJob = (jobId: number): Promise<void> =>
+  api.post(`/paid/enrichment/jobs/${jobId}/cancel`, null, { headers: paidHeaders() }).then(() => undefined)
 
 export const buildExportCsvUrl = (filters: Filters): string => {
   const exportFilters = { ...filters }

@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from models.detail import CnaeItem, EmpresaDetail, SimplesOut, SocioOut
 from models.empresa import EmpresaOut
 from models.filters import ProspectingFilters
-from services.query_builder import build_prospecting_query
+from services.query_builder import build_enrichment_candidate_query, build_prospecting_query
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +524,20 @@ class TestBuildProspectingQueryCnpjMode:
         sql, params = build_prospecting_query(f)
         assert "est.uf =" not in sql
         assert "situacao_cadastral =" not in sql
+
+
+class TestBuildEnrichmentCandidateQuery:
+    def test_wraps_bounded_prospecting_query(self):
+        filters = ProspectingFilters(uf="SP", limit=100)
+        sql, params = build_enrichment_candidate_query(filters, max_items=500)
+
+        assert "enrichment_candidates" in sql
+        assert "LIMIT 500" in sql
+        assert params == [2, "SP"]
+
+    def test_requires_positive_max_items(self):
+        with pytest.raises(ValueError):
+            build_enrichment_candidate_query(ProspectingFilters(), max_items=0)
 
 
 class TestBuildProspectingQueryNewFilters:

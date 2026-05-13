@@ -3,6 +3,8 @@ import { Loader2, RotateCcw, Search } from 'lucide-react'
 import type { Filters } from '../api/client'
 import type { BairroSelection } from './BairroAutocomplete'
 import { BairroAutocomplete } from './BairroAutocomplete'
+import type { CitySelection } from './CityAutocomplete'
+import { CityAutocomplete } from './CityAutocomplete'
 import { CnaeSelector } from './CnaeSelector'
 
 interface Props {
@@ -18,15 +20,35 @@ const PORTES = [
   { value: 5, label: 'Demais' },
 ]
 const RESULT_LIMITS = [50, 100, 500, 1000, 5000, 10000, 50000]
+const SITUACOES = [
+  { value: '2', label: 'Ativas' },
+  { value: '', label: 'Todas' },
+  { value: '1', label: 'Nulas' },
+  { value: '3', label: 'Suspensas' },
+  { value: '4', label: 'Inaptas' },
+  { value: '8', label: 'Baixadas' },
+]
 
 export function FilterPanel({ onSearch, loading }: Props) {
   const [cnpj, setCnpj] = useState('')
   const [uf, setUf] = useState('')
+  const [cidade, setCidade] = useState('')
+  const [municipio, setMunicipio] = useState<number | undefined>(undefined)
   const [bairro, setBairro] = useState('')
   const [municipioBairro, setMunicipioBairro] = useState<number | undefined>(undefined)
+  const [situacao, setSituacao] = useState('2')
 
   const handleUfChange = (newUf: string) => {
     setUf(newUf)
+    setCidade('')
+    setMunicipio(undefined)
+    setBairro('')
+    setMunicipioBairro(undefined)
+  }
+
+  const handleCityChange = ({ municipio: mun, descricao }: CitySelection) => {
+    setCidade(descricao)
+    setMunicipio(mun)
     setBairro('')
     setMunicipioBairro(undefined)
   }
@@ -43,7 +65,7 @@ export function FilterPanel({ onSearch, loading }: Props) {
   const [matrizFilial, setMatrizFilial] = useState('')
   const [dataMin, setDataMin] = useState('')
   const [dataMax, setDataMax] = useState('')
-  const [opcaoSimples, setOpcaoSimples] = useState(false)
+  const [opcaoSimples, setOpcaoSimples] = useState('')
   const [naturezaJuridica, setNaturezaJuridica] = useState('')
   const [resultLimit, setResultLimit] = useState(100)
 
@@ -55,11 +77,12 @@ export function FilterPanel({ onSearch, loading }: Props) {
 
   const buildFilters = (): Filters => {
     if (cnpjMode) return { cnpj: cnpj.trim() }
+    const effectiveMunicipio = municipio ?? municipioBairro
     return {
-      situacao_cadastral: 2,
+      ...(situacao && { situacao_cadastral: Number(situacao) }),
       ...(uf && { uf }),
       ...(bairro.trim() && { bairro: bairro.trim() }),
-      ...(municipioBairro !== undefined && { municipio: municipioBairro }),
+      ...(effectiveMunicipio !== undefined && { municipio: effectiveMunicipio }),
       ...(selectedCnaes.length > 0 && { cnaes: selectedCnaes }),
       ...(portes.length > 0 && { porte: portes }),
       ...(!meiInPortes && excluirMei && { excluir_mei: true }),
@@ -68,7 +91,7 @@ export function FilterPanel({ onSearch, loading }: Props) {
       ...(matrizFilial && { matriz_filial: Number(matrizFilial) }),
       ...(dataMin && { data_inicio_min: dataMin }),
       ...(dataMax && { data_inicio_max: dataMax }),
-      ...(opcaoSimples && { opcao_simples: true }),
+      ...(opcaoSimples && { opcao_simples: opcaoSimples === 'S' }),
       ...(naturezaJuridica && { natureza_juridica: Number(naturezaJuridica) }),
       limit: resultLimit,
     }
@@ -82,8 +105,11 @@ export function FilterPanel({ onSearch, loading }: Props) {
   const handleClear = () => {
     setCnpj('')
     setUf('')
+    setCidade('')
+    setMunicipio(undefined)
     setBairro('')
     setMunicipioBairro(undefined)
+    setSituacao('2')
     setSelectedCnaes([])
     setPortes([])
     setExcluirMei(false)
@@ -92,7 +118,7 @@ export function FilterPanel({ onSearch, loading }: Props) {
     setMatrizFilial('')
     setDataMin('')
     setDataMax('')
-    setOpcaoSimples(false)
+    setOpcaoSimples('')
     setNaturezaJuridica('')
     setResultLimit(100)
     onSearch({ situacao_cadastral: 2, limit: 100 })
@@ -110,7 +136,7 @@ export function FilterPanel({ onSearch, loading }: Props) {
           {cnpjMode && <span className="text-xs text-yellow-700">Demais filtros serão ignorados.</span>}
         </label>
 
-        <div className={cnpjMode ? 'pointer-events-none opacity-50' : ''}>
+        <div className={`space-y-4 ${cnpjMode ? 'pointer-events-none opacity-50' : ''}`}>
           <label className={labelClass}>
             UF
             <select value={uf} onChange={e => handleUfChange(e.target.value)} className={inputClass}>
@@ -119,9 +145,21 @@ export function FilterPanel({ onSearch, loading }: Props) {
             </select>
           </label>
           <div className={labelClass}>
-            Bairro
-            <BairroAutocomplete uf={uf} value={bairro} onChange={handleBairroChange} />
+            Cidade
+            <CityAutocomplete uf={uf} value={cidade} onChange={handleCityChange} />
           </div>
+          <div className={labelClass}>
+            Bairro
+            <BairroAutocomplete uf={uf} municipio={municipio} value={bairro} onChange={handleBairroChange} />
+          </div>
+          <label className={labelClass}>
+            Situação cadastral
+            <select value={situacao} onChange={e => setSituacao(e.target.value)} className={inputClass}>
+              {SITUACOES.map(item => (
+                <option key={item.value || 'all'} value={item.value}>{item.label}</option>
+              ))}
+            </select>
+          </label>
           <div className={labelClass}>
             CNAE
             <CnaeSelector selected={selectedCnaes} onChange={setSelectedCnaes} />
@@ -163,9 +201,13 @@ export function FilterPanel({ onSearch, loading }: Props) {
               <input type="date" value={dataMax} onChange={e => setDataMax(e.target.value)} className={inputClass} />
             </div>
           </div>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={opcaoSimples} onChange={e => setOpcaoSimples(e.target.checked)} />
-            Somente Simples Nacional
+          <label className={labelClass}>
+            Simples Nacional
+            <select value={opcaoSimples} onChange={e => setOpcaoSimples(e.target.value)} className={inputClass}>
+              <option value="">Todos</option>
+              <option value="S">Somente optantes</option>
+              <option value="N">Somente não optantes</option>
+            </select>
           </label>
           <label className={labelClass}>
             Natureza jurídica

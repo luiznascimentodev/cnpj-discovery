@@ -264,6 +264,23 @@ class TestEnqueueDomainJobsForDomain:
         )
         assert count == len(paths)
 
+    @pytest.mark.asyncio
+    async def test_urls_override_paths(self):
+        urls = ["https://acme.com.br/", "https://acme.com.br/contato-real"]
+        rows = [{"id": i + 1, "inserted": True} for i in range(len(urls))]
+        conn = FakeConnection(fetchrow_results=rows)
+        count = await enqueue_domain_jobs_for_domain(
+            FakePool(conn),
+            domain="acme.com.br",
+            homepage_url="https://acme.com.br",
+            source="sitemap",
+            priority=50,
+            urls=urls,
+        )
+        assert count == len(urls)
+        used_urls = [call[1][1] for call in conn.fetchrow_calls]
+        assert used_urls == urls
+
 
 class TestEnqueueJobsFromVerifiedDomains:
     @pytest.mark.asyncio
@@ -295,6 +312,57 @@ class TestEnqueueJobsFromVerifiedDomains:
         )
         assert domains_seen == 0
         assert jobs_inserted == 0
+
+    @pytest.mark.asyncio
+    async def test_url_discoverer_overrides_canonical_paths(self):
+        verified_rows = [
+            {"id": 1, "domain": "alpha.com.br", "homepage_url": "https://alpha.com.br"},
+        ]
+        # discoverer returns exactly 2 URLs → 2 insert attempts
+        inserted_rows = [{"id": 1, "inserted": True}, {"id": 2, "inserted": True}]
+        conn = FakeConnection(
+            fetch_results=[verified_rows],
+            fetchrow_results=inserted_rows,
+        )
+        discovered = ["https://alpha.com.br/", "https://alpha.com.br/contato"]
+
+        async def fake_discoverer(homepage_url):
+            return discovered
+
+        domains_seen, jobs_inserted = await enqueue_jobs_from_verified_domains(
+            FakePool(conn),
+            cursor_id=0,
+            batch_size=100,
+            url_discoverer=fake_discoverer,
+        )
+        assert domains_seen == 1
+        assert jobs_inserted == 2
+        # The URLs passed to fetchrow should be exactly the discovered ones
+        used_urls = [call[1][1] for call in conn.fetchrow_calls]
+        assert used_urls == discovered
+
+    @pytest.mark.asyncio
+    async def test_url_discoverer_empty_falls_back_to_homepage(self):
+        verified_rows = [
+            {"id": 1, "domain": "alpha.com.br", "homepage_url": None},
+        ]
+        inserted_rows = [{"id": 1, "inserted": True}]
+        conn = FakeConnection(
+            fetch_results=[verified_rows],
+            fetchrow_results=inserted_rows,
+        )
+
+        async def empty_discoverer(homepage_url):
+            return []
+
+        domains_seen, jobs_inserted = await enqueue_jobs_from_verified_domains(
+            FakePool(conn),
+            url_discoverer=empty_discoverer,
+        )
+        assert domains_seen == 1
+        assert jobs_inserted == 1
+        used_urls = [call[1][1] for call in conn.fetchrow_calls]
+        assert used_urls == ["https://alpha.com.br/"]
 
 
 class TestEnqueuePlaywrightJobsForZeroContactDomains:

@@ -37,10 +37,17 @@ class TestDomainDiscovery:
             )
         ) == []
 
-    def test_domains_from_brand_slugs_generates_com_br_and_com(self):
+    def test_domains_from_brand_slugs_generates_all_tlds(self):
         candidates = domains_from_brand_slugs(["acme"])
+        domains = [c.domain for c in candidates]
 
-        assert [candidate.domain for candidate in candidates] == ["acme.com.br", "acme.com"]
+        assert domains == ["acme.com.br", "acme.net.br", "acme.org.br", "acme.ind.br", "acme.com"]
+
+    def test_domains_from_brand_slugs_tld_confidence_order(self):
+        candidates = domains_from_brand_slugs(["acme"])
+        confidences = [c.confidence for c in candidates]
+
+        assert confidences == [45, 42, 40, 35, 33]
 
     def test_discover_domain_candidates_dedupes_by_best_confidence(self):
         candidates = discover_domain_candidates(
@@ -51,4 +58,6 @@ class TestDomainDiscovery:
 
         assert candidates[0].domain == "acme.com.br"
         assert candidates[0].source == "rf_email_domain"
-        assert [candidate.domain for candidate in candidates] == ["acme.com.br", "acme.com"]
+        assert [c.domain for c in candidates] == [
+            "acme.com.br", "acme.net.br", "acme.org.br", "acme.ind.br", "acme.com"
+        ]

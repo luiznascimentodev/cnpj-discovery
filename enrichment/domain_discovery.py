@@ -97,7 +97,13 @@ def domains_from_rf_email(email_contact: BaselineContact | None) -> list[DomainC
 def domains_from_brand_slugs(slugs: list[str]) -> list[DomainCandidate]:
     candidates: list[DomainCandidate] = []
     for slug in slugs:
-        for suffix, confidence in ((".com.br", 45), (".com", 35)):
+        for suffix, confidence in (
+            (".com.br", 45),
+            (".net.br", 42),
+            (".org.br", 40),
+            (".ind.br", 35),
+            (".com",    33),
+        ):
             domain = normalize_domain(f"{slug}{suffix}")
             if domain:
                 candidates.append(

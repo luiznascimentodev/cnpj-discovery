@@ -32,6 +32,7 @@ from crawler.domain_queue import (
     enqueue_playwright_jobs_for_zero_contact_domains,
     release_stale_domain_jobs,
 )
+from crawler.sitemap import discover_crawl_urls
 from crawler.domain_runner import run_domain_batch
 from crawler.playwright_runner import PlaywrightRunStats, run_playwright_batch
 from crawler.queue import release_stale_requests
@@ -40,6 +41,14 @@ from database import close_pool, create_pool
 from config import settings
 from discovery.errors import SearchRateLimitError
 from discovery.external_search import ExternalSearchClient
+from heartbeat import beat as heartbeat_beat, remove as heartbeat_remove
+from demand_queue import (
+    claim_demand_items,
+    complete_demand_item,
+    count_published_contacts,
+    has_pending_demand,
+    release_stale_demand_items,
+)
 
 DISCOVERY_CONCURRENCY = settings.discovery_concurrency
 from discovery.pipeline import process_target as discover_target
@@ -76,6 +85,8 @@ class TickStats:
     crawler_done: int = 0
     contacts_published: int = 0
     leases_released: int = 0
+    demand_done: int = 0
+    demand_failed: int = 0
 
 
 async def do_seed(pool, *, reason: str, priority: int, batch_size: int) -> int:
@@ -187,7 +198,112 @@ async def do_crawler(
 async def do_release_stale(pool, *, lease_seconds: int) -> int:
     targets = await release_stale_locks(pool, lease_seconds=lease_seconds)
     requests = await release_stale_requests(pool, lease_seconds=lease_seconds)
-    return targets + requests
+    demand = await release_stale_demand_items(pool)
+    return targets + requests + demand
+
+
+async def do_demand_tick(
+    pool,
+    *,
+    client,
+    worker_id: str,
+    batch_size: int,
+    lease_seconds: int,
+    concurrency: int,
+) -> tuple[int, int]:
+    items = await claim_demand_items(
+        pool,
+        worker_id=worker_id,
+        batch_size=batch_size,
+        lease_seconds=lease_seconds,
+    )
+    if not items:
+        return 0, 0
+
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _process(item) -> bool:
+        async with sem:
+            try:
+                await discover_target(
+                    pool,
+                    cnpj_basico=item.cnpj_basico,
+                    cnpj_ordem=item.cnpj_ordem,
+                    cnpj_dv=item.cnpj_dv,
+                    client=client,
+                    external_search=_build_external_search(),
+                    dns_only=False,
+                )
+                contacts = await count_published_contacts(pool, item)
+                await complete_demand_item(
+                    pool,
+                    item_id=item.id,
+                    status="enriched" if contacts else "no_public_contact",
+                    result_source="fresh_crawl" if contacts else "none",
+                )
+                return True
+            except SearchRateLimitError as exc:
+                _source_backoffs[exc.source] = time.time() + exc.retry_after
+                await complete_demand_item(
+                    pool,
+                    item_id=item.id,
+                    status="failed_retryable",
+                    last_error=str(exc),
+                )
+                return False
+            except Exception as exc:
+                logger.error("demand_enrichment_error cnpj={} error={}: {}", item.cnpj, type(exc).__name__, exc)
+                await complete_demand_item(
+                    pool,
+                    item_id=item.id,
+                    status="failed_retryable",
+                    last_error=f"{type(exc).__name__}: {exc}",
+                )
+                return False
+
+    results = await asyncio.gather(*[_process(item) for item in items])
+    done = sum(1 for ok in results if ok)
+    return done, len(items) - done
+
+
+async def do_trickle_loop(pool, client, args) -> TickStats:
+    demand_waiting = await has_pending_demand(pool)
+    released = await do_release_stale(pool, lease_seconds=args.lease_seconds)
+    if demand_waiting:
+        return TickStats(leases_released=released)
+
+    seeded = await do_seed(
+        pool,
+        reason=args.reason,
+        priority=args.priority,
+        batch_size=args.seed_batch_size,
+    )
+    claimed, crawl_created = await do_discovery(
+        pool,
+        client=client,
+        worker_id=args.worker_id,
+        batch_size=args.discovery_batch_size,
+        lease_seconds=args.lease_seconds,
+        concurrency=args.concurrency,
+        external_search=_build_external_search(),
+        reason=args.reason,
+    )
+    crawler_done, contacts = await do_crawler(
+        pool,
+        client=client,
+        worker_id=args.worker_id,
+        batch_size=args.crawl_batch_size,
+        lease_seconds=args.lease_seconds,
+        user_agent=args.user_agent,
+    )
+    return TickStats(
+        seeded=seeded,
+        targets_claimed=claimed,
+        crawl_requests_created=crawl_created,
+        crawler_done=crawler_done,
+        contacts_published=contacts,
+        leases_released=released,
+    )
 
 
 def _build_external_search() -> ExternalSearchClient:
@@ -354,7 +470,7 @@ async def cmd_release_stale(args) -> None:
         )
         print(
             f"release-stale released={released + domain_released} "
-            f"(cnpj={released} domain={domain_released}) lease={args.lease_seconds}s"
+            f"(cnpj_demand_and_legacy={released} domain={domain_released}) lease={args.lease_seconds}s"
         )
     finally:
         await close_pool()
@@ -382,7 +498,42 @@ async def cmd_domain_crawler(args) -> None:
     try:
         async with make_default_client(user_agent=args.user_agent) as client:
             iteration = 0
+            enqueue_cursor = 0
             while True:
+                await heartbeat_beat(
+                    pool,
+                    worker_id=args.worker_id,
+                    role="domain-crawler",
+                    current_stage="enqueue",
+                )
+                # Self-enqueue: every iteration, advance cursor through verified
+                # company_domains so the crawl queue never starves. Uses sitemap.xml
+                # to discover real URLs instead of guessing paths (avoids 70% 404s).
+                async def _discover(homepage_url: str) -> list[str]:
+                    return await discover_crawl_urls(client, homepage_url)
+
+                domains_seen, jobs_inserted = await enqueue_jobs_from_verified_domains(
+                    pool,
+                    source="verified_domain",
+                    priority=50,
+                    batch_size=args.enqueue_batch_size,
+                    cursor_id=enqueue_cursor,
+                    url_discoverer=_discover,
+                )
+                if domains_seen > 0:
+                    enqueue_cursor = await _max_company_domain_id_seen(
+                        pool, after_id=enqueue_cursor, limit=args.enqueue_batch_size
+                    )
+                else:
+                    # Restart from beginning so new verified domains get picked up.
+                    enqueue_cursor = 0
+                await heartbeat_beat(
+                    pool,
+                    worker_id=args.worker_id,
+                    role="domain-crawler",
+                    current_stage="crawl",
+                    metadata={"enqueue_cursor": enqueue_cursor, "jobs_inserted": jobs_inserted},
+                )
                 stats = await run_domain_batch(
                     pool,
                     client=client,
@@ -392,9 +543,10 @@ async def cmd_domain_crawler(args) -> None:
                     user_agent=args.user_agent,
                 )
                 logger.info(
-                    "domain_crawler_loop iter={} claimed={} done={} retried={} blocked={} "
-                    "errored={} budget_skipped={} contacts={}",
-                    iteration, stats.jobs_claimed, stats.jobs_done, stats.jobs_retried,
+                    "domain_crawler_loop iter={} enqueued_domains={} enqueued_jobs={} cursor={} "
+                    "claimed={} done={} retried={} blocked={} errored={} budget_skipped={} contacts={}",
+                    iteration, domains_seen, jobs_inserted, enqueue_cursor,
+                    stats.jobs_claimed, stats.jobs_done, stats.jobs_retried,
                     stats.jobs_blocked, stats.jobs_errored, stats.budget_skipped,
                     stats.contacts_extracted,
                 )
@@ -403,14 +555,39 @@ async def cmd_domain_crawler(args) -> None:
                     return
                 await asyncio.sleep(args.interval)
     finally:
+        try:
+            await heartbeat_remove(pool, worker_id=args.worker_id)
+        except Exception:  # pragma: no cover
+            pass
         await close_pool()
+
+
+async def _max_company_domain_id_seen(pool, *, after_id: int, limit: int) -> int:
+    """Return the max company_domains.id within the next `limit` verified rows after `after_id`.
+    Used by the self-enqueue loop in domain-crawler to advance its cursor."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT MAX(id) AS max_id FROM (
+                SELECT id FROM paid_enrichment.company_domains
+                WHERE status='verified' AND id > $1
+                ORDER BY id LIMIT $2
+            ) sub
+            """,
+            after_id, limit,
+        )
+    return int(row["max_id"]) if row and row["max_id"] is not None else after_id
 
 
 async def cmd_resolve_domain(args) -> None:
     pool = await create_pool()
+    worker_id = getattr(args, "worker_id", None) or default_worker_id()
     try:
         iteration = 0
         while True:
+            await heartbeat_beat(
+                pool, worker_id=worker_id, role="domain-resolver", current_stage="resolve",
+            )
             stats = await resolve_domain_contacts(
                 pool,
                 batch_size=args.batch_size,
@@ -428,6 +605,10 @@ async def cmd_resolve_domain(args) -> None:
                 return
             await asyncio.sleep(args.interval)
     finally:
+        try:
+            await heartbeat_remove(pool, worker_id=worker_id)
+        except Exception:  # pragma: no cover
+            pass
         await close_pool()
 
 
@@ -475,10 +656,15 @@ async def cmd_playwright_crawler(args) -> None:
 
 async def cmd_worker(args) -> None:
     pool = await create_pool()
+    role = f"enrichment-phase{args.phase}" if args.phase in (1, 2) else "enrichment"
     try:
         async with make_default_client(user_agent=args.user_agent) as client:
             iteration = 0
             while True:
+                await heartbeat_beat(
+                    pool, worker_id=args.worker_id, role=role, current_stage="tick",
+                    metadata={"phase": args.phase, "iter": iteration},
+                )
                 stats = await do_one_loop(pool, client, args)
                 logger.info(
                     "worker_loop iter={} seeded={} claimed={} crawl_created={} done={} contacts={} released={}",
@@ -495,6 +681,87 @@ async def cmd_worker(args) -> None:
                     return
                 await asyncio.sleep(args.interval)
     finally:
+        try:
+            await heartbeat_remove(pool, worker_id=args.worker_id)
+        except Exception:  # pragma: no cover
+            pass
+        await close_pool()
+
+
+async def cmd_demand_worker(args) -> None:
+    pool = await create_pool()
+    try:
+        async with make_default_client(user_agent=args.user_agent) as client:
+            iteration = 0
+            while True:
+                await heartbeat_beat(
+                    pool,
+                    worker_id=args.worker_id,
+                    role="enrichment-demand",
+                    current_stage="tick",
+                    metadata={"iter": iteration},
+                )
+                done, failed = await do_demand_tick(
+                    pool,
+                    client=client,
+                    worker_id=args.worker_id,
+                    batch_size=args.batch_size,
+                    lease_seconds=args.lease_seconds,
+                    concurrency=args.concurrency,
+                )
+                if iteration % max(args.release_every, 1) == 0:
+                    released = await do_release_stale(pool, lease_seconds=args.lease_seconds)
+                else:
+                    released = 0
+                logger.info(
+                    "demand_worker_loop iter={} done={} failed={} released={}",
+                    iteration, done, failed, released,
+                )
+                iteration += 1
+                if args.max_iters and iteration >= args.max_iters:
+                    return
+                await asyncio.sleep(args.interval)
+    finally:
+        try:
+            await heartbeat_remove(pool, worker_id=args.worker_id)
+        except Exception:  # pragma: no cover
+            pass
+        await close_pool()
+
+
+async def cmd_trickle_worker(args) -> None:
+    pool = await create_pool()
+    try:
+        async with make_default_client(user_agent=args.user_agent) as client:
+            iteration = 0
+            while True:
+                await heartbeat_beat(
+                    pool,
+                    worker_id=args.worker_id,
+                    role="enrichment-trickle",
+                    current_stage="tick",
+                    metadata={"iter": iteration},
+                )
+                stats = await do_trickle_loop(pool, client, args)
+                logger.info(
+                    "trickle_worker_loop iter={} seeded={} claimed={} crawl_created={} done={} contacts={} released={}",
+                    iteration,
+                    stats.seeded,
+                    stats.targets_claimed,
+                    stats.crawl_requests_created,
+                    stats.crawler_done,
+                    stats.contacts_published,
+                    stats.leases_released,
+                )
+                iteration += 1
+                if args.max_iters and iteration >= args.max_iters:
+                    return
+                await asyncio.sleep(args.interval)
+    finally:
+        try:
+            await heartbeat_remove(pool, worker_id=args.worker_id)
+        except Exception:  # pragma: no cover
+            pass
         await close_pool()
 
 
@@ -539,9 +806,12 @@ def build_parser() -> argparse.ArgumentParser:
     domain_crawler.add_argument("--user-agent", default=DEFAULT_USER_AGENT)
     domain_crawler.add_argument("--interval", type=int, default=DEFAULT_INTERVAL_SECONDS)
     domain_crawler.add_argument("--max-iters", type=int, default=0, help="0 = sem limite")
+    domain_crawler.add_argument("--enqueue-batch-size", type=int, default=25,
+                                help="quantos verified domains enfileirar por iter")
     domain_crawler.set_defaults(func=cmd_domain_crawler)
 
     resolve = sub.add_parser("resolve-domain-tick")
+    resolve.add_argument("--worker-id", default=default_worker_id())
     resolve.add_argument("--batch-size", type=int, default=1000)
     resolve.add_argument("--cursor-id", type=int, default=0)
     resolve.add_argument("--interval", type=int, default=DEFAULT_INTERVAL_SECONDS)
@@ -573,6 +843,31 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--phase", type=int, default=0,
                         help="1=dns-only sweep, 2=external search, 0=legacy")
     worker.set_defaults(func=cmd_worker)
+
+    demand = sub.add_parser("demand-worker")
+    demand.add_argument("--worker-id", default=default_worker_id())
+    demand.add_argument("--batch-size", type=int, default=20)
+    demand.add_argument("--concurrency", type=int, default=2)
+    demand.add_argument("--interval", type=int, default=5)
+    demand.add_argument("--lease-seconds", type=int, default=600)
+    demand.add_argument("--release-every", type=int, default=60)
+    demand.add_argument("--user-agent", default=DEFAULT_USER_AGENT)
+    demand.add_argument("--max-iters", type=int, default=0, help="0 = sem limite")
+    demand.set_defaults(func=cmd_demand_worker)
+
+    trickle = sub.add_parser("trickle-worker")
+    trickle.add_argument("--worker-id", default=default_worker_id())
+    trickle.add_argument("--reason", default="trickle")
+    trickle.add_argument("--priority", type=int, default=10)
+    trickle.add_argument("--seed-batch-size", type=int, default=25)
+    trickle.add_argument("--discovery-batch-size", type=int, default=5)
+    trickle.add_argument("--crawl-batch-size", type=int, default=5)
+    trickle.add_argument("--concurrency", type=int, default=1)
+    trickle.add_argument("--interval", type=int, default=120)
+    trickle.add_argument("--lease-seconds", type=int, default=600)
+    trickle.add_argument("--user-agent", default=DEFAULT_USER_AGENT)
+    trickle.add_argument("--max-iters", type=int, default=0, help="0 = sem limite")
+    trickle.set_defaults(func=cmd_trickle_worker)
 
     seed_p1 = sub.add_parser("seed-phase1")
     seed_p1.add_argument("--batch-size", type=int, default=50_000)
