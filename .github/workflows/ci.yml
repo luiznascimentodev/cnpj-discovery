@@ -66,6 +66,7 @@ jobs:
       POSTGRES_DB: cnpj
       POSTGRES_USER: cnpj_user
       POSTGRES_PASSWORD: changeme
+      ETL_INDEX_WORKERS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
