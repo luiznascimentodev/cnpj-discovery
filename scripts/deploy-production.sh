@@ -24,4 +24,8 @@ docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" up -d --build \
   domain-crawler-worker \
   domain-resolver-worker
 
+# Recreate nginx after upstream containers are running so Docker DNS is resolved
+# against the current container IPs after every deploy.
+docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" up -d --force-recreate nginx
+
 docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" ps
