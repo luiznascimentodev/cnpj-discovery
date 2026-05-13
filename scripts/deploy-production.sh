@@ -13,7 +13,7 @@ if [[ ! -f .env ]]; then
 fi
 
 docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" config >/tmp/cnpj-discovery-compose.yml
-docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" up -d --build --remove-orphans \
+docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" up -d --build \
   postgres \
   redis \
   api \
