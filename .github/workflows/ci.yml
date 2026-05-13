@@ -1,5 +1,8 @@
 name: CI
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 on:
   push:
     branches: [main]
@@ -82,7 +85,7 @@ jobs:
           for file in db/migrations/*.sql; do
             psql -h localhost -U cnpj_user -d cnpj -v ON_ERROR_STOP=1 -f "$file"
           done
-      - run: python -m pytest -q
+      - run: python -m pytest tests -q -o addopts='' --cov=. --cov-report=term-missing --cov-fail-under=90
 
   frontend:
     name: Frontend tests and build
