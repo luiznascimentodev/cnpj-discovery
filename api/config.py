@@ -17,6 +17,15 @@ class Settings(BaseSettings):
     # CORS origins aceitos — separados por vírgula no env
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
+    redis_url: str = "redis://localhost:6379/0"
+
+    enrichment_service_url: str = "http://localhost:8010"
+    enrichment_api_key: str = "development-enrichment-key"
+    paid_contact_feature_key: str = "crawler_contacts"
+
+    stripe_webhook_secret: str = ""
+    stripe_signature_tolerance_seconds: int = 300
+
     environment: str = "development"
 
     @property

@@ -1,27 +1,55 @@
 services:
   postgres:
-    ports: []
+    ports: !reset []
+    restart: unless-stopped
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/migrations:/docker-entrypoint-initdb.d
 
   redis:
-    ports: []
+    ports: !reset []
+    restart: unless-stopped
+
+  etl:
+    restart: "no"
+    volumes:
+      - ./storage/cnpj_data:/tmp/cnpj_data
 
   api:
-    build: false
-    image: cnpj-discovery-api:latest
-    restart: always
-    ports:
-      - "8000:8000"
+    ports: !reset []
+    restart: unless-stopped
+
+  enrichment:
+    ports: !reset []
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+        VITE_ACCOUNT_ID: production-account
+        VITE_USER_ID: production-user
+    container_name: cnpj-frontend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   nginx:
-    ports:
+    restart: unless-stopped
+    ports: !override
       - "80:80"
-      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
 
 volumes:
   pgdata:

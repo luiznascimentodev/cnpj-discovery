@@ -240,8 +240,12 @@ docker compose exec api pytest --cov --cov-report=html
 | `POSTGRES_PASSWORD` | Senha PostgreSQL | Sim | - |
 | `REDIS_URL` | URL de conexão Redis | Sim | `redis://localhost:6379/0` |
 | `ETL_DATA_DIR` | Diretório para dados ETL | Sim | `/tmp/cnpj_data` |
-| `ETL_BATCH_SIZE` | Tamanho do batch no ETL | Não | `50000` |
+| `ETL_BATCH_SIZE` | Tamanho do batch no ETL | Não | `500000` |
 | `ETL_WORKERS` | Número de workers ETL | Não | `4` |
+| `ETL_DOWNLOAD_WORKERS` | Downloads paralelos da RF | Não | `2` |
+| `ETL_PROCESS_WORKERS` | Workers de processamento/carga | Não | `6` |
+| `ETL_INDEX_WORKERS` | Índices criados em paralelo | Não | `4` |
+| `ETL_ACTIVE_ONLY` | Carrega somente CNPJs com estabelecimento ativo | Não | `true` |
 | `DISCORD_WEBHOOK_URL` | Webhook Discord (notificações) | Não | - |
 | `SLACK_WEBHOOK_URL` | Webhook Slack (notificações) | Não | - |
 | `RF_SHARE_TOKEN` | Token WebDAV Receita Federal | Sim | - |

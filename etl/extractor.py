@@ -14,11 +14,16 @@ from typing import Generator
 import polars as pl
 from loguru import logger
 
+# Buffer de leitura interno do stream descomprimido. 16 MB reduz chamadas de I/O
+# no ZipExtFile sem pressionar memória — o batch em memória (500k linhas ~100 MB)
+# é o fator dominante.
+_READ_BUFFER_BYTES = 16 * 1024 * 1024
+
 
 def stream_zip_as_batches(
     zip_path: Path,
     column_names: list[str],
-    batch_size: int = 50_000,
+    batch_size: int = 500_000,
 ) -> Generator[pl.DataFrame, None, None]:
     """
     Abre um arquivo ZIP da Receita Federal e emite batches de linhas como DataFrames Polars.
@@ -26,7 +31,7 @@ def stream_zip_as_batches(
     Args:
         zip_path: Caminho para o arquivo .zip
         column_names: Lista de nomes de colunas (na ordem exata do CSV sem header)
-        batch_size: Número de linhas por batch (default 50.000)
+        batch_size: Número de linhas por batch (default 500.000)
 
     Yields:
         pl.DataFrame com todas as colunas como pl.Utf8, pronto para o transformer
@@ -37,12 +42,15 @@ def stream_zip_as_batches(
     """
     with zipfile.ZipFile(zip_path, "r") as zf:
         csv_name = _find_csv_entry(zf, zip_path)
-        logger.info(f"Streaming {csv_name} from {zip_path.name} (batch_size={batch_size})")
+        logger.info(f"Streaming {csv_name} from {zip_path.name} (batch_size={batch_size:,})")
 
         total_rows = 0
         batch_num = 0
 
-        with zf.open(csv_name) as raw_file:
+        # io.BufferedReader sobre ZipExtFile agrupa leituras em blocos de
+        # _READ_BUFFER_BYTES, reduzindo o número de chamadas de descompressão
+        # zlib durante a iteração linha-a-linha.
+        with io.BufferedReader(zf.open(csv_name), buffer_size=_READ_BUFFER_BYTES) as raw_file:
             buffer: list[bytes] = []
 
             for line in raw_file:
@@ -51,7 +59,7 @@ def stream_zip_as_batches(
                     df = _parse_batch(buffer, column_names)
                     total_rows += len(df)
                     batch_num += 1
-                    logger.debug(f"Batch {batch_num}: {len(df)} rows (total: {total_rows})")
+                    logger.debug(f"Batch {batch_num}: {len(df):,} rows (total: {total_rows:,})")
                     yield df
                     buffer.clear()
 
@@ -61,7 +69,7 @@ def stream_zip_as_batches(
                 batch_num += 1
                 yield df
 
-        logger.success(f"Finished streaming {zip_path.name}: {total_rows} total rows in {batch_num} batches")
+        logger.success(f"Finished streaming {zip_path.name}: {total_rows:,} rows in {batch_num} batches")
 
 
 def _find_csv_entry(zf: zipfile.ZipFile, zip_path: Path) -> str:

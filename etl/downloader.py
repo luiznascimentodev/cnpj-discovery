@@ -6,6 +6,7 @@ então usamos verify=False nas requisições.
 """
 import io
 import re
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
@@ -184,10 +185,30 @@ def _download_with_resume(rf_file: RFFile, dest: Path) -> Path:
             dest.unlink()
             existing_size = 0
         response.raise_for_status()
+        total = rf_file.size
+        # Loga a cada 10% do arquivo ou a cada 10 MB, o que for maior
+        log_interval = max(10 * 1_000_000, total * 0.10) if total > 0 else 10 * 1_000_000
+        downloaded = existing_size
+        last_logged = existing_size
+        last_time = time.monotonic()
+
         mode = "ab" if existing_size > 0 else "wb"
         with open(dest, mode) as f:
             for chunk in response.iter_bytes(chunk_size=1_024 * 1_024):
                 f.write(chunk)
+                downloaded += len(chunk)
+
+                if downloaded - last_logged >= log_interval:
+                    now = time.monotonic()
+                    elapsed = now - last_time
+                    speed = (downloaded - last_logged) / elapsed / 1_000_000 if elapsed > 0 else 0
+                    pct = downloaded / total * 100 if total > 0 else 0
+                    logger.info(
+                        f"  ↓ {rf_file.name}: {downloaded/1e6:.0f}/{total/1e6:.0f} MB"
+                        f" ({pct:.0f}%) — {speed:.1f} MB/s"
+                    )
+                    last_logged = downloaded
+                    last_time = now
 
     logger.success(f"Downloaded {rf_file.name} → {dest} ({dest.stat().st_size:,} bytes)")
     return dest

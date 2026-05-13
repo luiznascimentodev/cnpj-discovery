@@ -6,33 +6,52 @@ Documentação interativa disponível em /docs (Swagger UI).
 
 Endpoints:
     GET /v1/health          Health check
-    GET /v1/prospecting     Busca empresas com filtros
-    GET /v1/export/csv      Exporta resultado filtrado como CSV
-    GET /v1/status          Status do ETL e estatísticas do banco
+    GET /v1/prospecting     Busca empresas com filtros (com cache Redis)
+    GET /v1/export/csv      Exporta resultado filtrado como CSV (streaming batched)
+    GET /v1/status          Status do ETL e estatísticas do banco (estimativas pg_class)
 """
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from cache import create_cache, close_cache
 from config import settings
 from database import create_pool, close_pool
-from routers import prospecting, export, status
+from middleware.concurrency_monitor import ThunderingHerdMiddleware
+from middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
+from middleware.query_monitor import N1DetectorMiddleware
+from routers import (
+    bairros,
+    billing_webhook,
+    cnaes,
+    empresa,
+    export,
+    paid_enrichment,
+    prospecting,
+    status,
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle: inicializa pool no startup, fecha no shutdown."""
     await create_pool()
-    yield
-    await close_pool()
+    await create_cache()
+    rss_task = asyncio.create_task(rss_monitor_loop())
+    try:
+        yield
+    finally:
+        rss_task.cancel()
+        try:
+            await rss_task
+        except asyncio.CancelledError:
+            pass
+        await close_pool()
+        await close_cache()
 
 
 def create_app() -> FastAPI:
-    """
-    Factory da aplicação FastAPI.
-    Separar a criação da instância permite testar sem subir o servidor.
-    """
     app = FastAPI(
         title="CNPJ Discovery API",
         description=(
@@ -54,20 +73,25 @@ def create_app() -> FastAPI:
             {"name": "health", "description": "Health check e liveness probe"},
             {"name": "prospecting", "description": "Busca e filtros de empresas"},
             {"name": "export", "description": "Exportação de dados em CSV"},
+            {"name": "paid_enrichment", "description": "Dados pagos de enriquecimento via crawler"},
+            {"name": "billing", "description": "Stripe webhook receiver"},
             {"name": "status", "description": "Status do ETL e estatísticas"},
         ],
         lifespan=lifespan,
     )
 
+    # Middleware registrado de fora para dentro (último registrado = mais externo)
+    app.add_middleware(ThunderingHerdMiddleware)
+    app.add_middleware(SlowRequestMiddleware)
+    app.add_middleware(N1DetectorMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
         allow_credentials=True,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
 
-    # Health check — sem dependência de DB para responder rápido em probes
     @app.get(
         "/v1/health",
         tags=["health"],
@@ -79,6 +103,11 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": "1.0.0"}
 
     app.include_router(prospecting.router, prefix="/v1")
+    app.include_router(bairros.router, prefix="/v1")
+    app.include_router(cnaes.router, prefix="/v1")
+    app.include_router(empresa.router, prefix="/v1")
+    app.include_router(paid_enrichment.router, prefix="/v1")
+    app.include_router(billing_webhook.router, prefix="/v1")
     app.include_router(export.router, prefix="/v1")
     app.include_router(status.router, prefix="/v1")
 

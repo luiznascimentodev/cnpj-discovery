@@ -1,66 +1,101 @@
 import { useState, type FormEvent } from 'react'
 import { Loader2, RotateCcw, Search } from 'lucide-react'
 import type { Filters } from '../api/client'
+import type { BairroSelection } from './BairroAutocomplete'
+import { BairroAutocomplete } from './BairroAutocomplete'
+import type { CitySelection } from './CityAutocomplete'
+import { CityAutocomplete } from './CityAutocomplete'
+import { CnaeSelector } from './CnaeSelector'
 
 interface Props {
   onSearch: (filters: Filters) => void
   loading: boolean
 }
 
-const UFS = [
-  'AC',
-  'AL',
-  'AP',
-  'AM',
-  'BA',
-  'CE',
-  'DF',
-  'ES',
-  'GO',
-  'MA',
-  'MT',
-  'MS',
-  'MG',
-  'PA',
-  'PB',
-  'PR',
-  'PE',
-  'PI',
-  'RJ',
-  'RN',
-  'RS',
-  'RO',
-  'RR',
-  'SC',
-  'SP',
-  'SE',
-  'TO',
+const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
+const PORTES = [
+  { value: 1, label: 'MEI' },
+  { value: 2, label: 'ME' },
+  { value: 3, label: 'EPP' },
+  { value: 5, label: 'Demais' },
+]
+const RESULT_LIMITS = [50, 100, 500, 1000, 5000, 10000, 50000]
+const SITUACOES = [
+  { value: '2', label: 'Ativas' },
+  { value: '', label: 'Todas' },
+  { value: '1', label: 'Nulas' },
+  { value: '3', label: 'Suspensas' },
+  { value: '4', label: 'Inaptas' },
+  { value: '8', label: 'Baixadas' },
 ]
 
-const DEFAULT_FILTERS: Filters = {
-  situacao_cadastral: 2,
-}
-
 export function FilterPanel({ onSearch, loading }: Props) {
-  const [buscaRazao, setBuscaRazao] = useState('')
+  const [cnpj, setCnpj] = useState('')
   const [uf, setUf] = useState('')
-  const [cnaePrincipal, setCnaePrincipal] = useState('')
-  const [porte, setPorte] = useState('')
+  const [cidade, setCidade] = useState('')
+  const [municipio, setMunicipio] = useState<number | undefined>(undefined)
+  const [bairro, setBairro] = useState('')
+  const [municipioBairro, setMunicipioBairro] = useState<number | undefined>(undefined)
+  const [situacao, setSituacao] = useState('2')
+
+  const handleUfChange = (newUf: string) => {
+    setUf(newUf)
+    setCidade('')
+    setMunicipio(undefined)
+    setBairro('')
+    setMunicipioBairro(undefined)
+  }
+
+  const handleCityChange = ({ municipio: mun, descricao }: CitySelection) => {
+    setCidade(descricao)
+    setMunicipio(mun)
+    setBairro('')
+    setMunicipioBairro(undefined)
+  }
+
+  const handleBairroChange = ({ bairro: b, municipio: mun }: BairroSelection) => {
+    setBairro(b)
+    setMunicipioBairro(mun)
+  }
+  const [selectedCnaes, setSelectedCnaes] = useState<number[]>([])
+  const [portes, setPortes] = useState<number[]>([])
   const [excluirMei, setExcluirMei] = useState(false)
-  const [capitalSocialMin, setCapitalSocialMin] = useState('')
+  const [capitalMin, setCapitalMin] = useState('')
+  const [capitalMax, setCapitalMax] = useState('')
+  const [matrizFilial, setMatrizFilial] = useState('')
+  const [dataMin, setDataMin] = useState('')
+  const [dataMax, setDataMax] = useState('')
+  const [opcaoSimples, setOpcaoSimples] = useState('')
+  const [naturezaJuridica, setNaturezaJuridica] = useState('')
+  const [resultLimit, setResultLimit] = useState(100)
 
-  const selectedPorte = porte ? Number(porte) : undefined
-  const meiSelected = selectedPorte === 1
+  const cnpjMode = cnpj.trim().length > 0
+  const meiInPortes = portes.includes(1)
 
-  const buildFilters = (): Filters => ({
-    ...DEFAULT_FILTERS,
-    ...(buscaRazao.trim() && { busca_razao: buscaRazao.trim() }),
-    ...(uf && { uf }),
-    ...(cnaePrincipal && { cnae_principal: Number(cnaePrincipal) }),
-    ...(selectedPorte && { porte: selectedPorte }),
-    ...(!meiSelected && excluirMei && { excluir_mei: true }),
-    ...(capitalSocialMin && { capital_social_min: Number(capitalSocialMin) }),
-  })
+  const togglePorte = (value: number) =>
+    setPortes(prev => (prev.includes(value) ? prev.filter(p => p !== value) : [...prev, value]))
+
+  const buildFilters = (): Filters => {
+    if (cnpjMode) return { cnpj: cnpj.trim() }
+    const effectiveMunicipio = municipio ?? municipioBairro
+    return {
+      ...(situacao && { situacao_cadastral: Number(situacao) }),
+      ...(uf && { uf }),
+      ...(bairro.trim() && { bairro: bairro.trim() }),
+      ...(effectiveMunicipio !== undefined && { municipio: effectiveMunicipio }),
+      ...(selectedCnaes.length > 0 && { cnaes: selectedCnaes }),
+      ...(portes.length > 0 && { porte: portes }),
+      ...(!meiInPortes && excluirMei && { excluir_mei: true }),
+      ...(capitalMin && { capital_social_min: Number(capitalMin) }),
+      ...(capitalMax && { capital_social_max: Number(capitalMax) }),
+      ...(matrizFilial && { matriz_filial: Number(matrizFilial) }),
+      ...(dataMin && { data_inicio_min: dataMin }),
+      ...(dataMax && { data_inicio_max: dataMax }),
+      ...(opcaoSimples && { opcao_simples: opcaoSimples === 'S' }),
+      ...(naturezaJuridica && { natureza_juridica: Number(naturezaJuridica) }),
+      limit: resultLimit,
+    }
+  }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -68,125 +103,137 @@ export function FilterPanel({ onSearch, loading }: Props) {
   }
 
   const handleClear = () => {
-    setBuscaRazao('')
+    setCnpj('')
     setUf('')
-    setCnaePrincipal('')
-    setPorte('')
+    setCidade('')
+    setMunicipio(undefined)
+    setBairro('')
+    setMunicipioBairro(undefined)
+    setSituacao('2')
+    setSelectedCnaes([])
+    setPortes([])
     setExcluirMei(false)
-    setCapitalSocialMin('')
-    onSearch(DEFAULT_FILTERS)
+    setCapitalMin('')
+    setCapitalMax('')
+    setMatrizFilial('')
+    setDataMin('')
+    setDataMax('')
+    setOpcaoSimples('')
+    setNaturezaJuridica('')
+    setResultLimit(100)
+    onSearch({ situacao_cadastral: 2, limit: 100 })
   }
 
+  const inputClass = 'rounded-md border border-gray-300 bg-white px-3 py-2 text-sm'
+  const labelClass = 'flex flex-col gap-2 text-sm font-medium text-gray-700'
+
   return (
-    <aside className="h-full w-full border-r border-gray-200 bg-gray-50 p-5 lg:w-80">
-      <form className="flex h-full flex-col gap-5" onSubmit={handleSubmit}>
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">CNPJ Discovery</h1>
-          <p className="mt-1 text-sm text-gray-500">Prospecção de empresas</p>
+    <aside className="h-full w-full border-r border-gray-200 bg-gray-50 p-5 lg:w-96">
+      <form className="flex h-full flex-col gap-4" onSubmit={handleSubmit}>
+        <label className={labelClass}>
+          Buscar por CNPJ
+          <input value={cnpj} onChange={e => setCnpj(e.target.value)} className={inputClass} placeholder="00.000.000/0001-00" />
+          {cnpjMode && <span className="text-xs text-yellow-700">Demais filtros serão ignorados.</span>}
+        </label>
+
+        <div className={`space-y-4 ${cnpjMode ? 'pointer-events-none opacity-50' : ''}`}>
+          <label className={labelClass}>
+            UF
+            <select value={uf} onChange={e => handleUfChange(e.target.value)} className={inputClass}>
+              <option value="">Todos</option>
+              {UFS.map(x => <option key={x} value={x}>{x}</option>)}
+            </select>
+          </label>
+          <div className={labelClass}>
+            Cidade
+            <CityAutocomplete uf={uf} value={cidade} onChange={handleCityChange} />
+          </div>
+          <div className={labelClass}>
+            Bairro
+            <BairroAutocomplete uf={uf} municipio={municipio} value={bairro} onChange={handleBairroChange} />
+          </div>
+          <label className={labelClass}>
+            Situação cadastral
+            <select value={situacao} onChange={e => setSituacao(e.target.value)} className={inputClass}>
+              {SITUACOES.map(item => (
+                <option key={item.value || 'all'} value={item.value}>{item.label}</option>
+              ))}
+            </select>
+          </label>
+          <div className={labelClass}>
+            CNAE
+            <CnaeSelector selected={selectedCnaes} onChange={setSelectedCnaes} />
+          </div>
+          <div className="text-sm font-medium text-gray-700">
+            Porte
+            <div className="mt-2 flex flex-wrap gap-3">
+              {PORTES.map(p => (
+                <label key={p.value} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={portes.includes(p.value)} onChange={() => togglePorte(p.value)} />
+                  {p.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={!meiInPortes && excluirMei} disabled={meiInPortes} onChange={e => setExcluirMei(e.target.checked)} />
+            Excluir MEI
+          </label>
+          <div className={labelClass}>
+            Capital social (R$)
+            <div className="flex gap-2">
+              <input type="number" value={capitalMin} onChange={e => setCapitalMin(e.target.value)} className={inputClass} />
+              <input type="number" value={capitalMax} onChange={e => setCapitalMax(e.target.value)} className={inputClass} />
+            </div>
+          </div>
+          <label className={labelClass}>
+            Estabelecimento
+            <select value={matrizFilial} onChange={e => setMatrizFilial(e.target.value)} className={inputClass}>
+              <option value="">Todos</option>
+              <option value="1">Somente Matriz</option>
+              <option value="2">Somente Filial</option>
+            </select>
+          </label>
+          <div className={labelClass}>
+            Data de abertura
+            <div className="flex gap-2">
+              <input type="date" value={dataMin} onChange={e => setDataMin(e.target.value)} className={inputClass} />
+              <input type="date" value={dataMax} onChange={e => setDataMax(e.target.value)} className={inputClass} />
+            </div>
+          </div>
+          <label className={labelClass}>
+            Simples Nacional
+            <select value={opcaoSimples} onChange={e => setOpcaoSimples(e.target.value)} className={inputClass}>
+              <option value="">Todos</option>
+              <option value="S">Somente optantes</option>
+              <option value="N">Somente não optantes</option>
+            </select>
+          </label>
+          <label className={labelClass}>
+            Natureza jurídica
+            <input type="number" value={naturezaJuridica} onChange={e => setNaturezaJuridica(e.target.value)} className={inputClass} />
+          </label>
+          <label className={labelClass}>
+            Resultados na tela
+            <select value={resultLimit} onChange={e => setResultLimit(Number(e.target.value))} className={inputClass}>
+              {RESULT_LIMITS.map(value => (
+                <option key={value} value={value}>
+                  {value.toLocaleString('pt-BR')} resultados
+                </option>
+              ))}
+            </select>
+            <span className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs font-normal text-yellow-800">
+              Quanto maior a quantidade, mais a busca pode demorar e consumir memória no navegador.
+            </span>
+          </label>
         </div>
 
-        <label className="flex flex-col gap-2 text-sm font-medium text-gray-700">
-          Razão social ou fantasia
-          <input
-            type="text"
-            value={buscaRazao}
-            onChange={event => setBuscaRazao(event.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-normal text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            placeholder="Buscar empresa"
-          />
-        </label>
-
-        <label className="flex flex-col gap-2 text-sm font-medium text-gray-700">
-          UF
-          <select
-            value={uf}
-            onChange={event => setUf(event.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-normal text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          >
-            <option value="">Todos</option>
-            {UFS.map(item => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-2 text-sm font-medium text-gray-700">
-          CNAE principal
-          <input
-            type="number"
-            inputMode="numeric"
-            min="0"
-            value={cnaePrincipal}
-            onChange={event => setCnaePrincipal(event.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-normal text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            placeholder="ex: 6201500"
-          />
-        </label>
-
-        <label className="flex flex-col gap-2 text-sm font-medium text-gray-700">
-          Porte
-          <select
-            value={porte}
-            onChange={event => {
-              const nextPorte = event.target.value
-              setPorte(nextPorte)
-              if (nextPorte === '1') {
-                setExcluirMei(false)
-              }
-            }}
-            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-normal text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          >
-            <option value="">Todos</option>
-            <option value="1">MEI</option>
-            <option value="2">ME</option>
-            <option value="3">EPP</option>
-            <option value="5">Demais</option>
-          </select>
-        </label>
-
-        <label className="flex items-center gap-3 text-sm font-medium text-gray-700">
-          <input
-            type="checkbox"
-            checked={!meiSelected && excluirMei}
-            disabled={meiSelected}
-            onChange={event => setExcluirMei(event.target.checked)}
-            className="h-4 w-4 rounded border-gray-300 text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-          />
-          Excluir MEI
-        </label>
-
-        <label className="flex flex-col gap-2 text-sm font-medium text-gray-700">
-          Capital Mínimo (R$)
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="0.01"
-            value={capitalSocialMin}
-            onChange={event => setCapitalSocialMin(event.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-normal text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            placeholder="0,00"
-          />
-        </label>
-
         <div className="mt-auto grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={handleClear}
-            className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
-          >
-            <RotateCcw className="h-4 w-4" />
-            Limpar
+          <button type="button" onClick={handleClear} className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm">
+            <RotateCcw className="h-4 w-4" /> Limpar
           </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-            Buscar
+          <button type="submit" disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm text-white">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Buscar
           </button>
         </div>
       </form>

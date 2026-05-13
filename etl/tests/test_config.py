@@ -39,16 +39,34 @@ def test_workers_validator_raises_on_zero():
         Settings(etl_workers=0, postgres_password="x")
 
 
-def test_default_values():
+def test_min_free_gb_validator_raises_on_negative():
     from config import Settings
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        Settings(etl_min_free_gb=-1, postgres_password="x")
+
+
+def test_default_values(monkeypatch):
+    from config import Settings
+    monkeypatch.delenv("POSTGRES_HOST", raising=False)
+    monkeypatch.delenv("POSTGRES_PORT", raising=False)
+    monkeypatch.delenv("POSTGRES_DB", raising=False)
+    monkeypatch.delenv("POSTGRES_USER", raising=False)
+    monkeypatch.delenv("ETL_AUTO_LOAD_PUBLIC_DATA", raising=False)
     s = Settings(postgres_password="x")
     assert s.postgres_host == "localhost"
     assert s.postgres_port == 5432
-    assert s.etl_batch_size == 50_000
+    assert s.etl_batch_size == 500_000
     assert s.etl_workers == 4
+    assert s.etl_active_only is True
+    assert s.etl_auto_load_public_data is False
+    assert s.etl_min_free_gb == 70
+    assert s.etl_keep_zips_after_load is False
     assert s.environment == "development"
     assert s.discord_webhook_url == ""
     assert s.rf_share_token == "gn672Ad4CF8N6TK"
+    assert "dados_abertos_cnpj" in s.rf_http_index_url
+    assert "dados.gov.br" in s.dados_gov_cnpj_url
 
 
 def test_settings_from_env_vars(monkeypatch):

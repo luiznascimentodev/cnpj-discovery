@@ -43,7 +43,13 @@ services:
       - -c
       - max_parallel_workers=12
       - -c
-      - max_connections=200
+      - max_connections=300
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - pg_stat_statements.max=10000
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cnpj_user}"]
       interval: 10s
@@ -74,6 +80,9 @@ services:
     environment:
       POSTGRES_HOST: postgres
       REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_SERVICE_URL: http://enrichment:8010
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      PAID_CONTACT_FEATURE_KEY: ${PAID_CONTACT_FEATURE_KEY:-crawler_contacts}
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,17 +111,338 @@ services:
     profiles:
       - etl
 
+  enrichment:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    container_name: cnpj-enrichment
+    ports:
+      - "8010:8010"
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_HOST: 0.0.0.0
+      ENRICHMENT_PORT: 8010
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      BRASILAPI_ENABLED: "${BRASILAPI_ENABLED:-true}"
+      BRAVE_SEARCH_API_KEY: "${BRAVE_SEARCH_API_KEY:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: cnpj-searxng
+    volumes:
+      - ./config/searxng-config:/etc/searxng:ro
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/search?q=test&format=json > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    profiles:
+      - worker
+
+  enrichment-worker:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      BRASILAPI_ENABLED: "${BRASILAPI_ENABLED:-true}"
+      BRAVE_SEARCH_API_KEY: "${BRAVE_SEARCH_API_KEY:-}"
+      SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
+      DISCOVERY_CONCURRENCY: "25"
+    command:
+      - python
+      - cli.py
+      - worker
+      - --phase
+      - "1"
+      - --interval
+      - "5"
+      - --seed-batch-size
+      - "${ENRICHMENT_SEED_BATCH:-5000}"
+      - --discovery-batch-size
+      - "${ENRICHMENT_DISCOVERY_BATCH:-500}"
+      - --crawl-batch-size
+      - "${ENRICHMENT_CRAWL_BATCH:-20}"
+      - --lease-seconds
+      - "${ENRICHMENT_LEASE_SECONDS:-600}"
+    deploy:
+      replicas: 20
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'cli.py worker'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - worker
+
+  enrichment-worker-p2:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      BRASILAPI_ENABLED: "${BRASILAPI_ENABLED:-true}"
+      SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
+      DISCOVERY_CONCURRENCY: "10"
+    command:
+      - python
+      - cli.py
+      - worker
+      - --phase
+      - "2"
+      - --interval
+      - "30"
+      - --seed-batch-size
+      - "${ENRICHMENT_SEED_BATCH_P2:-10000}"
+      - --discovery-batch-size
+      - "${ENRICHMENT_DISCOVERY_BATCH_P2:-50}"
+      - --crawl-batch-size
+      - "${ENRICHMENT_CRAWL_BATCH:-20}"
+      - --lease-seconds
+      - "${ENRICHMENT_LEASE_SECONDS:-600}"
+    deploy:
+      replicas: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'cli.py worker'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - worker-p2
+
+  enrichment-demand-worker:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      BRASILAPI_ENABLED: "${BRASILAPI_ENABLED:-true}"
+      BRAVE_SEARCH_API_KEY: "${BRAVE_SEARCH_API_KEY:-}"
+      SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
+      DISCOVERY_CONCURRENCY: "${ENRICHMENT_DEMAND_CONCURRENCY:-2}"
+    command:
+      - python
+      - cli.py
+      - demand-worker
+      - --batch-size
+      - "${ENRICHMENT_DEMAND_BATCH:-20}"
+      - --concurrency
+      - "${ENRICHMENT_DEMAND_CONCURRENCY:-2}"
+      - --interval
+      - "${ENRICHMENT_DEMAND_INTERVAL:-5}"
+      - --lease-seconds
+      - "${ENRICHMENT_LEASE_SECONDS:-600}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'demand-worker'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - demand-worker
+
+  enrichment-trickle-worker:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      BRASILAPI_ENABLED: "${BRASILAPI_ENABLED:-true}"
+      SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
+      DISCOVERY_CONCURRENCY: "${ENRICHMENT_TRICKLE_CONCURRENCY:-1}"
+    command:
+      - python
+      - cli.py
+      - trickle-worker
+      - --seed-batch-size
+      - "${ENRICHMENT_TRICKLE_SEED_BATCH:-25}"
+      - --discovery-batch-size
+      - "${ENRICHMENT_TRICKLE_BATCH:-5}"
+      - --crawl-batch-size
+      - "${ENRICHMENT_TRICKLE_BATCH:-5}"
+      - --concurrency
+      - "${ENRICHMENT_TRICKLE_CONCURRENCY:-1}"
+      - --interval
+      - "${ENRICHMENT_TRICKLE_INTERVAL:-120}"
+      - --lease-seconds
+      - "${ENRICHMENT_LEASE_SECONDS:-600}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'trickle-worker'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - trickle-worker
+
+  # Domain-first crawler worker (Phase 4+ of scale plan)
+  # Scale independently: docker compose up -d --scale domain-crawler-worker=4
+  domain-crawler-worker:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      DOMAIN_FIRST_CRAWLER_ENABLED: "true"
+    command:
+      - python
+      - cli.py
+      - domain-crawler-tick
+      - --batch-size
+      - "${DOMAIN_CRAWLER_BATCH:-20}"
+      - --lease-seconds
+      - "${ENRICHMENT_LEASE_SECONDS:-600}"
+      - --interval
+      - "${DOMAIN_CRAWLER_INTERVAL:-30}"
+      - --enqueue-batch-size
+      - "${DOMAIN_CRAWLER_ENQUEUE_BATCH:-25}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'domain-crawler-tick'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - domain-crawler
+
+  # Resolver worker: maps domain candidates -> enriched_contacts
+  domain-resolver-worker:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+    command:
+      - python
+      - cli.py
+      - resolve-domain-tick
+      - --batch-size
+      - "${DOMAIN_RESOLVER_BATCH:-1000}"
+      - --interval
+      - "${DOMAIN_RESOLVER_INTERVAL:-30}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'resolve-domain-tick'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - domain-crawler
+
+  # Playwright browser fallback (Phase 6). Low global concurrency — never default path.
+  # Build with: docker compose build playwright-crawler-worker
+  # Scale: docker compose --profile playwright up -d (intentionally no --scale here)
+  playwright-crawler-worker:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+      args:
+        INSTALL_PLAYWRIGHT_BROWSERS: "true"
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      ENRICHMENT_API_KEY: ${ENRICHMENT_API_KEY:-development-enrichment-key}
+      DOMAIN_FIRST_CRAWLER_ENABLED: "true"
+    command:
+      - python
+      - cli.py
+      - playwright-crawler-tick
+      - --batch-size
+      - "${PLAYWRIGHT_CRAWLER_BATCH:-5}"
+      - --lease-seconds
+      - "${ENRICHMENT_LEASE_SECONDS:-600}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'playwright-crawler-tick'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - playwright
+
   nginx:
     image: nginx:alpine
     container_name: cnpj-nginx
     ports:
-      - "80:80"
+      - "8080:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - api
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/api/v1/health | grep -q '\"status\":\"ok\"'"]
       interval: 30s
       timeout: 10s
       retries: 3
