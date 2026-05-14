@@ -8,6 +8,7 @@ from dataset_sources import (
     DatasetSnapshot,
     choose_load_snapshot,
     discover_dados_gov_catalog,
+    discover_dataset_snapshots,
     discover_rf_http_index,
     discover_rf_webdav,
     parse_http_index,
@@ -144,3 +145,18 @@ class TestDatasetSources:
 
         assert snapshot.source_name == "dados_gov_catalog"
         assert snapshot.files[0].etag == "abc"
+
+    def test_discover_dataset_snapshots_skips_unavailable_source(self):
+        webdav = DatasetSnapshot(
+            source_name="rf_webdav",
+            snapshot_key="2024-03",
+            source_url="webdav",
+            files=[DatasetFile("Empresas0.zip", "webdav/Empresas0.zip", 1)],
+        )
+
+        with patch("dataset_sources.discover_rf_webdav", return_value=webdav), \
+             patch("dataset_sources.discover_rf_http_index", side_effect=RuntimeError("404")), \
+             patch("dataset_sources.discover_dados_gov_catalog", return_value=None):
+            snapshots = discover_dataset_snapshots()
+
+        assert snapshots == [webdav]

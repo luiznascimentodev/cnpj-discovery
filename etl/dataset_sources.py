@@ -7,6 +7,7 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin
 
 import httpx
+from loguru import logger
 
 from config import settings
 from downloader import RFFile, list_rf_files
@@ -194,7 +195,12 @@ def discover_dados_gov_catalog() -> DatasetSnapshot:
 def discover_dataset_snapshots() -> list[DatasetSnapshot]:
     snapshots: list[DatasetSnapshot] = []
     for discover in (discover_rf_webdav, discover_rf_http_index, discover_dados_gov_catalog):
-        snapshot = discover()
+        try:
+            snapshot = discover()
+        except Exception as exc:
+            source_name = getattr(discover, "__name__", repr(discover))
+            logger.warning("Skipping unavailable dataset source {}: {}", source_name, exc)
+            continue
         if snapshot and snapshot.file_count > 0:
             snapshots.append(snapshot)
     return snapshots
