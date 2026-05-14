@@ -68,3 +68,5 @@ storage/
 dmypy.json
 .ruff_cache/
 .pdm.toml
+
+.superpowers/
