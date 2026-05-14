@@ -27,9 +27,15 @@ const getCursorFromCnpj = (cnpj: string): Pick<Filters, 'cursor_cnpj_basico' | '
   cursor_cnpj_ordem: cnpj.slice(8, 12),
 })
 
+const getLastCursorEmpresa = (items: EmpresaOut[]): EmpresaOut | undefined =>
+  items.reduce<EmpresaOut | undefined>((last, item) => {
+    if (!last) return item
+    return item.cnpj_completo > last.cnpj_completo ? item : last
+  }, undefined)
+
 export function Prospecting() {
-  const [currentFilters, setCurrentFilters] = useState<Filters>({ situacao_cadastral: 2, limit: DEFAULT_PAGE_SIZE })
-  const [exportFilters, setExportFilters] = useState<Filters>({ situacao_cadastral: 2, limit: DEFAULT_PAGE_SIZE })
+  const [currentFilters, setCurrentFilters] = useState<Filters>({ limit: DEFAULT_PAGE_SIZE })
+  const [exportFilters, setExportFilters] = useState<Filters>({ limit: DEFAULT_PAGE_SIZE })
   const [allResults, setAllResults] = useState<EmpresaOut[]>([])
   const [selectedCnpj, setSelectedCnpj] = useState<string | null>(() => cnpjFromCompanyPath())
   const [selectedCnpjs, setSelectedCnpjs] = useState<Set<string>>(new Set())
@@ -44,7 +50,7 @@ export function Prospecting() {
   const [searched, setSearched] = useState(false)
   const [lastPageSize, setLastPageSize] = useState(0)
   const requestRef = useRef<{ filters: Filters; append: boolean }>({
-    filters: { situacao_cadastral: 2, limit: DEFAULT_PAGE_SIZE },
+    filters: { limit: DEFAULT_PAGE_SIZE },
     append: false,
   })
 
@@ -86,7 +92,7 @@ export function Prospecting() {
   }
 
   const handleLoadMore = () => {
-    const lastItem = allResults.at(-1)
+    const lastItem = getLastCursorEmpresa(allResults)
 
     if (!lastItem) {
       return

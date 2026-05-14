@@ -26,7 +26,6 @@ class ProspectingFilters(BaseModel):
     data_inicio_min: Optional[date] = None
     data_inicio_max: Optional[date] = None
     opcao_simples: Optional[bool] = None
-    natureza_juridica: Optional[int] = None
     cursor_cnpj_basico: Optional[str] = None
     cursor_cnpj_ordem: Optional[str] = None
     limit: int = Field(100, ge=50, le=50_000)

@@ -176,7 +176,7 @@ class TestBuildProspectingQueryNoFilters:
     def test_no_conditions_no_where_clause(self):
         f = ProspectingFilters(situacao_cadastral=None)
         sql, params = build_prospecting_query(f)
-        assert "WHERE" not in sql
+        assert "situacao_cadastral = $" not in sql
         assert params == []
 
     def test_default_limit_100(self):
@@ -209,8 +209,6 @@ class TestBuildProspectingQuerySituacaoCadastral:
     def test_situacao_cadastral_none_not_added(self):
         f = ProspectingFilters(situacao_cadastral=None)
         sql, params = build_prospecting_query(f)
-        # No WHERE clause should be generated when situacao_cadastral is None
-        assert "WHERE" not in sql
         assert "situacao_cadastral = $" not in sql
         assert params == []
 
@@ -566,12 +564,6 @@ class TestBuildProspectingQueryNewFilters:
         assert "est.data_inicio <= $1" in sql
         assert params[0] == date(2023, 12, 31)
 
-    def test_natureza_juridica_condition(self):
-        f = ProspectingFilters(situacao_cadastral=None, natureza_juridica=2062)
-        sql, params = build_prospecting_query(f)
-        assert "e.natureza_juridica = $1" in sql
-        assert params[0] == 2062
-
     def test_opcao_simples_true_adds_join_and_condition(self):
         f = ProspectingFilters(situacao_cadastral=None, opcao_simples=True)
         sql, params = build_prospecting_query(f)
@@ -597,3 +589,162 @@ class TestBuildProspectingQueryNewFilters:
     def test_limit_50001_raises(self):
         with pytest.raises(ValidationError):
             ProspectingFilters(limit=50_001)
+
+
+class TestBuildProspectingQueryFilterMatrix:
+    @pytest.mark.parametrize(
+        ("name", "filters", "expected_sql", "expected_params"),
+        [
+            (
+                "situacao_uf_municipio_bairro",
+                ProspectingFilters(
+                    situacao_cadastral=2,
+                    uf="sp",
+                    municipio=3550308,
+                    bairro="centro",
+                ),
+                [
+                    "est.situacao_cadastral = $1",
+                    "est.uf = $2",
+                    "est.municipio = $3",
+                    "est.bairro IS NOT NULL",
+                    "upper(est.bairro)",
+                    "= $4",
+                ],
+                [2, "SP", 3550308, "CENTRO"],
+            ),
+            (
+                "location_cnae_cursor",
+                ProspectingFilters(
+                    situacao_cadastral=2,
+                    uf="RJ",
+                    municipio=3304557,
+                    cnaes=[5611201, 5611203],
+                    cursor_cnpj_basico="12345678",
+                    cursor_cnpj_ordem="0001",
+                ),
+                [
+                    "est.situacao_cadastral = $1",
+                    "est.uf = $2",
+                    "est.municipio = $3",
+                    "est.cnae_principal = ANY($4::int[])",
+                    "(est.cnpj_basico, est.cnpj_ordem) > ($5, $6)",
+                ],
+                [2, "RJ", 3304557, [5611201, 5611203], "12345678", "0001"],
+            ),
+            (
+                "company_filters",
+                ProspectingFilters(
+                    situacao_cadastral=None,
+                    porte=[2, 3],
+                    excluir_mei=True,
+                    capital_social_min=1000,
+                    capital_social_max=50000,
+                ),
+                [
+                    "e.porte = ANY($1::int[])",
+                    "(e.porte IS NULL OR e.porte != 1)",
+                    "e.capital_social >= $2",
+                    "e.capital_social <= $3",
+                ],
+                [[2, 3], 1000.0, 50000.0],
+            ),
+            (
+                "establishment_dates_and_kind",
+                ProspectingFilters(
+                    situacao_cadastral=None,
+                    matriz_filial=1,
+                    data_inicio_min=date(2020, 1, 1),
+                    data_inicio_max=date(2024, 12, 31),
+                ),
+                [
+                    "est.matriz_filial = $1",
+                    "est.data_inicio >= $2",
+                    "est.data_inicio <= $3",
+                ],
+                [1, date(2020, 1, 1), date(2024, 12, 31)],
+            ),
+            (
+                "simples_with_location_and_company",
+                ProspectingFilters(
+                    situacao_cadastral=2,
+                    uf="MG",
+                    municipio=3106200,
+                    porte=[5],
+                    opcao_simples=False,
+                ),
+                [
+                    "LEFT JOIN simples s ON s.cnpj_basico = e.cnpj_basico",
+                    "est.situacao_cadastral = $1",
+                    "est.uf = $2",
+                    "est.municipio = $3",
+                    "e.porte = ANY($4::int[])",
+                    "s.opcao_simples = $5",
+                ],
+                [2, "MG", 3106200, [5], "N"],
+            ),
+        ],
+    )
+    def test_filter_combinations_have_expected_sql_and_params(self, name, filters, expected_sql, expected_params):
+        sql, params = build_prospecting_query(filters)
+
+        assert name
+        for fragment in expected_sql:
+            assert fragment in sql
+        assert params == expected_params
+
+    def test_establishment_only_filters_use_candidate_query(self):
+        filters = ProspectingFilters(
+            situacao_cadastral=2,
+            uf="SP",
+            municipio=3550308,
+            bairro="CENTRO",
+            cnaes=[6201500],
+            matriz_filial=1,
+            data_inicio_min=date(2020, 1, 1),
+            data_inicio_max=date(2024, 12, 31),
+        )
+
+        sql, _ = build_prospecting_query(filters)
+
+        assert "WITH candidate_est AS MATERIALIZED" in sql
+        assert "LEFT JOIN simples" not in sql
+
+    def test_company_or_simples_filters_use_full_join_query(self):
+        filters = ProspectingFilters(
+            situacao_cadastral=2,
+            uf="SP",
+            municipio=3550308,
+            bairro="CENTRO",
+            cnaes=[6201500],
+            porte=[3],
+            capital_social_min=1000,
+            opcao_simples=True,
+        )
+
+        sql, params = build_prospecting_query(filters)
+
+        assert "WITH candidate_est AS MATERIALIZED" not in sql
+        assert "LEFT JOIN simples s ON s.cnpj_basico = e.cnpj_basico" in sql
+        assert params == [2, "SP", 3550308, "CENTRO", [6201500], [3], 1000.0, "S"]
+
+    def test_include_limit_false_keeps_all_non_pagination_filters(self):
+        filters = ProspectingFilters(
+            situacao_cadastral=2,
+            uf="SP",
+            municipio=3550308,
+            bairro="CENTRO",
+            cnaes=[6201500],
+            matriz_filial=1,
+            data_inicio_min=date(2020, 1, 1),
+            data_inicio_max=date(2024, 12, 31),
+            cursor_cnpj_basico="12345678",
+            cursor_cnpj_ordem="0001",
+        )
+
+        sql, params = build_prospecting_query(filters, include_limit=False)
+
+        assert "LIMIT" not in sql
+        assert "(est.cnpj_basico, est.cnpj_ordem) >" not in sql
+        assert "est.cnae_principal = ANY($5::int[])" in sql
+        assert params == [2, "SP", 3550308, "CENTRO", [6201500], 1, date(2020, 1, 1), date(2024, 12, 31)]

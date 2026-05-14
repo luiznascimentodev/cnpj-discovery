@@ -40,6 +40,11 @@ export interface CnaeGroup {
   cnaes: CnaeItem[]
 }
 
+export interface CnaeCatalog {
+  all: CnaeItem[]
+  segments: CnaeGroup[]
+}
+
 export interface SocioOut {
   nome_socio: string | null
   cpf_cnpj_socio: string | null
@@ -141,7 +146,6 @@ export interface Filters {
   data_inicio_min?: string
   data_inicio_max?: string
   opcao_simples?: boolean
-  natureza_juridica?: number
   cursor_cnpj_basico?: string
   cursor_cnpj_ordem?: string
   limit?: number
@@ -252,8 +256,8 @@ export const getBairros = (uf: string, q: string, municipio?: number): Promise<B
 export const getMunicipios = (uf: string, q: string): Promise<MunicipioItem[]> =>
   api.get<MunicipioItem[]>('/municipios', { params: { uf, q } }).then(r => r.data)
 
-export const getCnaes = (): Promise<CnaeGroup[]> =>
-  api.get<{ segments: CnaeGroup[] }>('/cnaes').then(r => r.data.segments)
+export const getCnaes = (): Promise<CnaeCatalog> =>
+  api.get<CnaeCatalog>('/cnaes').then(r => r.data)
 
 export const getStatus = (): Promise<StatusResponse> =>
   api.get<StatusResponse>('/status').then(r => r.data)

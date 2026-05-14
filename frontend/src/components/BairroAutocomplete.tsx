@@ -15,10 +15,6 @@ interface Props {
   onChange: (selection: BairroSelection) => void
 }
 
-function labelFor(item: BairroItem): string {
-  return item.municipio_descricao ? `${item.bairro} · ${item.municipio_descricao}` : item.bairro
-}
-
 export function BairroAutocomplete({ uf, municipio, value, onChange }: Props) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -36,7 +32,7 @@ export function BairroAutocomplete({ uf, municipio, value, onChange }: Props) {
   const { data = [] } = useQuery({
     queryKey: ['bairros', uf, municipio, trimmed],
     queryFn: () => getBairros(uf, trimmed, municipio),
-    enabled: !!uf && trimmed.length >= 2,
+    enabled: !!uf && municipio !== undefined && trimmed.length >= 2,
     staleTime: 1000 * 60 * 60,
   })
 
@@ -46,14 +42,11 @@ export function BairroAutocomplete({ uf, municipio, value, onChange }: Props) {
   }
 
   const handleSelect = (item: BairroItem) => {
-    onChange({
-      bairro: item.bairro,
-      ...(item.municipio !== null && { municipio: item.municipio }),
-    })
+    onChange({ bairro: item.bairro })
     setOpen(false)
   }
 
-  const disabled = !uf
+  const disabled = !uf || municipio === undefined
 
   return (
     <div ref={containerRef} className="relative">
@@ -64,7 +57,7 @@ export function BairroAutocomplete({ uf, municipio, value, onChange }: Props) {
         onChange={e => handleInput(e.target.value)}
         onFocus={() => data.length > 0 && setOpen(true)}
         className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
-        placeholder={disabled ? 'Selecione uma UF primeiro' : 'Digite o bairro…'}
+        placeholder={!uf ? 'Selecione uma UF primeiro' : municipio === undefined ? 'Selecione uma cidade primeiro' : 'Digite e selecione o bairro'}
         autoComplete="off"
       />
       {open && data.length > 0 && (
@@ -75,7 +68,7 @@ export function BairroAutocomplete({ uf, municipio, value, onChange }: Props) {
               onMouseDown={() => handleSelect(item)}
               className="cursor-pointer px-3 py-1.5 text-sm hover:bg-blue-50"
             >
-              {labelFor(item)}
+              {item.bairro}
             </li>
           ))}
         </ul>
