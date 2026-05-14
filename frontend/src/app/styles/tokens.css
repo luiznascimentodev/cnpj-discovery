@@ -1,0 +1,128 @@
+@theme {
+  /* === COLOR PRIMITIVES (Layer 1 — não usar em componentes) === */
+  --color-navy-900: #071d41;
+  --color-navy-800: #0c326f;
+  --color-navy-700: #14438a;
+  --color-blue-600: #1351b4;
+  --color-blue-500: #2563cf;
+  --color-blue-100: #e8efff;
+  --color-blue-50:  #f4f7fd;
+
+  --color-yellow-500: #ffcd07;
+  --color-yellow-400: #ffd633;
+  --color-yellow-100: #fff8db;
+
+  --color-gray-900: #1a2333;
+  --color-gray-700: #2a3950;
+  --color-gray-600: #4a5878;
+  --color-gray-500: #5b6878;
+  --color-gray-400: #9aa6b8;
+  --color-gray-300: #c8d0dc;
+  --color-gray-200: #e3e7ef;
+  --color-gray-100: #eef1f6;
+  --color-gray-50:  #f6f8fb;
+
+  --color-green-600: #1e7e34;
+  --color-green-100: #e6f4ea;
+  --color-red-600:   #c0392b;
+  --color-red-100:   #fbeae6;
+  --color-amber-600: #92590a;
+  --color-amber-100: #fff4e0;
+
+  /* === COLOR SEMANTIC (Layer 2 — componentes usam estes) === */
+  --color-bg-app:        var(--color-gray-50);
+  --color-bg-surface:    #ffffff;
+  --color-bg-subtle:     var(--color-gray-100);
+  --color-bg-inverse:    var(--color-navy-800);
+
+  --color-fg-primary:    var(--color-gray-900);
+  --color-fg-secondary:  var(--color-gray-600);
+  --color-fg-muted:      var(--color-gray-500);
+  --color-fg-on-inverse: #ffffff;
+
+  --color-action:        var(--color-blue-600);
+  --color-action-hover:  var(--color-navy-700);
+  --color-action-fg:     #ffffff;
+
+  --color-brand:         var(--color-yellow-500);
+  --color-brand-fg:      var(--color-gray-900);
+
+  --color-border:        var(--color-gray-200);
+  --color-border-strong: var(--color-gray-300);
+  --color-focus-ring:    var(--color-blue-500);
+
+  --color-success: var(--color-green-600); --color-success-bg: var(--color-green-100);
+  --color-danger:  var(--color-red-600);   --color-danger-bg:  var(--color-red-100);
+  --color-warning: var(--color-amber-600); --color-warning-bg: var(--color-amber-100);
+  --color-info:    var(--color-blue-600);  --color-info-bg:    var(--color-blue-100);
+
+  /* === SPACING (4px base) === */
+  --spacing-0: 0;
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+
+  /* === TYPOGRAPHY === */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --text-xs:   11px;   --text-xs-lh:   16px;
+  --text-sm:   12.5px; --text-sm-lh:   18px;
+  --text-base: 14px;   --text-base-lh: 20px;
+  --text-md:   16px;   --text-md-lh:   24px;
+  --text-lg:   18px;   --text-lg-lh:   26px;
+  --text-xl:   22px;   --text-xl-lh:   30px;
+  --text-2xl:  28px;   --text-2xl-lh:  36px;
+  --text-3xl:  36px;   --text-3xl-lh:  44px;
+
+  --font-weight-regular:  400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  /* === RADIUS === */
+  --radius-none: 0;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+
+  /* === SHADOW === */
+  --shadow-sm: 0 1px 2px rgba(7,29,65,.06), 0 0 0 1px rgba(7,29,65,.04);
+  --shadow-md: 0 4px 8px rgba(7,29,65,.08), 0 0 0 1px rgba(7,29,65,.05);
+  --shadow-lg: 0 12px 24px rgba(7,29,65,.12), 0 0 0 1px rgba(7,29,65,.06);
+  --shadow-focus: 0 0 0 3px rgba(37,99,207,.35);
+
+  /* === MOTION === */
+  --motion-duration-fast: 120ms;
+  --motion-duration-base: 200ms;
+  --motion-duration-slow: 320ms;
+  --motion-easing-standard:   cubic-bezier(.2, 0, 0, 1);
+  --motion-easing-emphasized: cubic-bezier(.3, 0, 0, 1);
+
+  /* === Z-INDEX === */
+  --z-base: 0;
+  --z-dropdown: 1000;
+  --z-sticky: 1100;
+  --z-modal-backdrop: 1200;
+  --z-modal: 1300;
+  --z-popover: 1400;
+  --z-tooltip: 1500;
+  --z-toast: 1600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0ms;
+    --motion-duration-base: 0ms;
+    --motion-duration-slow: 0ms;
+  }
+}
