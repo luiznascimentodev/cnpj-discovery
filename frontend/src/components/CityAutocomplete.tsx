@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { MunicipioItem } from '../api/client'
-import { getMunicipios } from '../api/client'
+import type { MunicipioItem } from '@/shared/api'
+import { getMunicipios } from '@/shared/api'
 
 export interface CitySelection {
   municipio?: number

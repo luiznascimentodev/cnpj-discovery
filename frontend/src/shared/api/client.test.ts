@@ -5,7 +5,11 @@ const post = vi.fn()
 
 vi.mock('axios', () => ({
   default: {
-    create: () => ({ get, post }),
+    create: () => ({
+      get,
+      post,
+      interceptors: { response: { use: vi.fn() }, request: { use: vi.fn() } },
+    }),
   },
 }))
 

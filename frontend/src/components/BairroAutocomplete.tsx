@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { BairroItem } from '../api/client'
-import { getBairros } from '../api/client'
+import type { BairroItem } from '@/shared/api'
+import { getBairros } from '@/shared/api'
 
 export interface BairroSelection {
   bairro: string

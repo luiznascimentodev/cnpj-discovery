@@ -1,1 +1,3 @@
-// FSD public API barrel — exports curated by slice owner
+export * from './client'
+export { ApiError } from './ApiError'
+export type { FieldErrors } from './ApiError'

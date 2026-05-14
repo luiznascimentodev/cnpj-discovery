@@ -14,7 +14,7 @@ import {
   type EnrichmentEstimateResponse,
   type EnrichmentJobSummary,
   type Filters,
-} from '../api/client'
+} from '@/shared/api'
 import { CompanyDetailModal } from '../components/CompanyDetailModal'
 import { FilterPanel } from '../components/FilterPanel'
 import { ResultsTable } from '../components/ResultsTable'

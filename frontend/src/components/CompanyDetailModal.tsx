@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ExternalLink, RefreshCw, X } from 'lucide-react'
-import { getEmpresa, type CrawlerContactOut, type CrawlerDomainOut } from '../api/client'
+import { getEmpresa, type CrawlerContactOut, type CrawlerDomainOut } from '@/shared/api'
 import { companyPath } from '../utils/companyRoutes'
 
 interface Props {

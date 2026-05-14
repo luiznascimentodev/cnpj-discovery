@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ResultsTable } from './ResultsTable'
-import type { EmpresaOut } from '../api/client'
+import type { EmpresaOut } from '@/shared/api'
 
 const row = (cnpj: string): EmpresaOut => ({
   cnpj_basico: cnpj.slice(0, 8),

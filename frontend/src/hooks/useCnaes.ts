@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { getCnaes } from '../api/client'
+import { getCnaes } from '@/shared/api'
 
 export const useCnaes = () =>
   useQuery({

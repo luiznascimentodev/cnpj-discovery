@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { EmpresaOut } from '../api/client'
+import type { EmpresaOut } from '@/shared/api'
 import { companyPath } from '../utils/companyRoutes'
 
 interface Props {

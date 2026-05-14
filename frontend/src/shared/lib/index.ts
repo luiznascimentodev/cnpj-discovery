@@ -1,1 +1,4 @@
-// FSD public API barrel — exports curated by slice owner
+export { cn } from './cn'
+export { formatCnpj } from './formatCnpj'
+export { formatDate } from './formatDate'
+export { formatCurrency } from './formatCurrency'

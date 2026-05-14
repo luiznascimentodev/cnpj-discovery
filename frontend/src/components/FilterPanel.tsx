@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Loader2, RotateCcw, Search } from 'lucide-react'
-import type { Filters } from '../api/client'
+import type { Filters } from '@/shared/api'
 import type { BairroSelection } from './BairroAutocomplete'
 import { BairroAutocomplete } from './BairroAutocomplete'
 import type { CitySelection } from './CityAutocomplete'

@@ -1,8 +1,23 @@
 import axios from 'axios'
+import { ApiError } from './ApiError'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/v1',
 })
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status ?? 0
+    const data = error?.response?.data ?? {}
+    return Promise.reject(new ApiError({
+      message: data.message ?? data.detail ?? error?.message ?? 'Erro de rede',
+      status,
+      code: data.code,
+      fieldErrors: data.fieldErrors,
+    }))
+  }
+)
 
 const paidHeaders = () => ({
   'X-Account-Id': import.meta.env.VITE_ACCOUNT_ID || 'development-account',

@@ -6,9 +6,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BairroAutocomplete } from './BairroAutocomplete'
 import { CityAutocomplete } from './CityAutocomplete'
-import { getBairros, getMunicipios } from '../api/client'
+import { getBairros, getMunicipios } from '@/shared/api'
 
-vi.mock('../api/client', () => ({
+vi.mock('@/shared/api', () => ({
   getBairros: vi.fn(),
   getMunicipios: vi.fn(),
 }))
