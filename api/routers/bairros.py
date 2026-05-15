@@ -5,8 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from cache import cache_get, cache_set
-from database import get_pool
+from core.cache import cache_get, cache_set
+from core.db import get_pool
 
 router = APIRouter()
 

@@ -2,7 +2,7 @@ from typing import Any
 
 import httpx
 
-from config import settings
+from core.config import settings
 from models.enrichment import PaidEnrichmentDetail
 
 _TIMEOUT_SECONDS = 10.0

@@ -1,8 +1,8 @@
 """Router de catálogo de CNAEs para seleção manual e por assunto."""
 from fastapi import APIRouter
 
-from cache import cache_get, cache_set
-from database import get_pool
+from core.cache import cache_get, cache_set
+from core.db import get_pool
 from services.cnae_segments import build_cnae_catalog
 
 router = APIRouter()

@@ -2,9 +2,9 @@
 import re
 from fastapi import APIRouter, HTTPException
 
-from cache import cache_get, cache_set, make_cache_key
-from config import settings
-from database import get_pool
+from core.cache import cache_get, cache_set, make_cache_key
+from core.config import settings
+from core.db import get_pool
 from models.detail import EmpresaDetail
 
 router = APIRouter()

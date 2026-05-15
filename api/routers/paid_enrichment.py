@@ -5,8 +5,8 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from fastapi.responses import Response
 
-from config import settings
-from database import get_pool
+from core.config import settings
+from core.db import get_pool
 from models.enrichment import PaidEnrichmentDetail
 from models.enrichment_jobs import (
     EnrichmentEstimateRequest,

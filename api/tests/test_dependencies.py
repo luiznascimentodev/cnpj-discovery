@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from dependencies import _parse_int_list, export_filters_dependency, prospecting_filters_dependency
+from core.dependencies import _parse_int_list, export_filters_dependency, prospecting_filters_dependency
 
 
 class TestParseIntList:

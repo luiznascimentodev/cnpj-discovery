@@ -28,7 +28,7 @@ async def client(mock_pool):
         patch("main.close_pool", new_callable=AsyncMock),
         patch("main.create_cache", new_callable=AsyncMock),
         patch("main.close_cache", new_callable=AsyncMock),
-        patch("database.get_pool", new_callable=AsyncMock, return_value=mock_pool),
+        patch("core.db.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.prospecting.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.export.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.status.get_pool", new_callable=AsyncMock, return_value=mock_pool),

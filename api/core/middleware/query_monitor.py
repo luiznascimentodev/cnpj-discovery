@@ -12,7 +12,7 @@ from typing import Awaitable, Callable
 
 from loguru import logger
 
-from database import query_count
+from core.db import query_count
 
 _N1_THRESHOLD = 3
 

@@ -13,7 +13,7 @@ from typing import Optional
 import asyncpg
 from loguru import logger
 
-from config import settings
+from core.config import settings
 
 _pool: Optional[asyncpg.Pool] = None
 

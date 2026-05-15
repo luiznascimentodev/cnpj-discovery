@@ -16,12 +16,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from cache import create_cache, close_cache
-from config import settings
-from database import create_pool, close_pool
-from middleware.concurrency_monitor import ThunderingHerdMiddleware
-from middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
-from middleware.query_monitor import N1DetectorMiddleware
+from core.cache import create_cache, close_cache
+from core.config import settings
+from core.db import create_pool, close_pool
+from core.middleware.concurrency_monitor import ThunderingHerdMiddleware
+from core.middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
+from core.middleware.query_monitor import N1DetectorMiddleware
 from routers import (
     bairros,
     billing_webhook,

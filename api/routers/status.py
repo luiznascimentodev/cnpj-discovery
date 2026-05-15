@@ -1,7 +1,7 @@
 """Router de status — estatísticas do banco e estado do ETL."""
 from fastapi import APIRouter
 
-from database import get_pool
+from core.db import get_pool
 
 router = APIRouter()
 

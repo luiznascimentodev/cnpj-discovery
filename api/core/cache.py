@@ -16,7 +16,7 @@ try:
 except ImportError:  # pragma: no cover
     _REDIS_AVAILABLE = False
 
-from config import settings
+from core.config import settings
 
 _redis: Optional[Any] = None
 
