@@ -6,7 +6,6 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from core.cache import get_redis
-from core.config import settings
 from core.csrf import CSRF_COOKIE_NAME, csrf_dependency, generate_csrf_token
 from core.db import get_pool
 from core.middleware.auth import (
@@ -49,7 +48,12 @@ def _now() -> datetime:
 
 
 def _secure_cookie(request: Request) -> bool:
-    return settings.environment == "production" or request.url.scheme == "https"
+    # Só marca Secure quando o scheme efetivo é HTTPS. Forçar Secure em HTTP
+    # (mesmo em prod) faz o browser descartar o cookie silenciosamente — quebra
+    # CSRF e sessão. Quando houver HTTPS via Let's Encrypt + reverse proxy,
+    # configurar ProxyHeadersMiddleware/X-Forwarded-Proto pra que `scheme`
+    # reflita HTTPS por trás do nginx.
+    return request.url.scheme == "https"
 
 
 def _client_ip(request: Request) -> str:
