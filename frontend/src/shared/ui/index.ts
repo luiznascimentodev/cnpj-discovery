@@ -37,5 +37,11 @@ export * from './feedback/Alert'
 export * from './feedback/Banner'
 export * from './feedback/ConfirmDialog'
 
+// Layout
+export * from './layout/Container'
+export * from './layout/Stack'
+export * from './layout/Inline'
+export * from './layout/PageHeader'
+
 // Icons sub-barrel (consumers do `import { Icons } from '@/shared/ui'` ou import direto de @/shared/ui/icons)
 export * as Icons from './icons'
