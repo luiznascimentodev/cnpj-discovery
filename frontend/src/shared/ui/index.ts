@@ -31,5 +31,11 @@ export * from './data/Stat'
 export * from './data/Pagination'
 export * from './data/DataTable'
 
+// Feedback
+export * from './feedback/Toaster'
+export * from './feedback/Alert'
+export * from './feedback/Banner'
+export * from './feedback/ConfirmDialog'
+
 // Icons sub-barrel (consumers do `import { Icons } from '@/shared/ui'` ou import direto de @/shared/ui/icons)
 export * as Icons from './icons'

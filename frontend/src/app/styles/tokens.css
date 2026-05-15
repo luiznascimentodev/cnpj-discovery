@@ -51,10 +51,10 @@
   --color-border-strong: var(--color-gray-300);
   --color-focus-ring:    var(--color-blue-500);
 
-  --color-success: var(--color-green-600); --color-success-bg: var(--color-green-100);
-  --color-danger:  var(--color-red-600);   --color-danger-bg:  var(--color-red-100);
-  --color-warning: var(--color-amber-600); --color-warning-bg: var(--color-amber-100);
-  --color-info:    var(--color-blue-600);  --color-info-bg:    var(--color-blue-100);
+  --color-success: var(--color-green-600); --color-success-bg: var(--color-green-100); --color-success-fg: #14532d; --color-success-border: #b7dfc4;
+  --color-danger:  var(--color-red-600);   --color-danger-bg:  var(--color-red-100);   --color-danger-fg:  #7f1d1d; --color-danger-border:  #f1c1ba;
+  --color-warning: var(--color-amber-600); --color-warning-bg: var(--color-amber-100); --color-warning-fg: #6b3d05; --color-warning-border: #f3d8a4;
+  --color-info:    var(--color-blue-600);  --color-info-bg:    var(--color-blue-100);  --color-info-fg:    #0c326f; --color-info-border:    #c7d6f5;
 
   /* === SPACING (4px base) === */
   --spacing-0: 0;
