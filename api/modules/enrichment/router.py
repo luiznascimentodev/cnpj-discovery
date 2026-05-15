@@ -7,8 +7,8 @@ from fastapi.responses import Response
 
 from core.config import settings
 from core.db import get_pool
-from models.enrichment import PaidEnrichmentDetail
-from models.enrichment_jobs import (
+from modules.enrichment.schemas import PaidEnrichmentDetail
+from modules.enrichment.job_schemas import (
     EnrichmentEstimateRequest,
     EnrichmentEstimateResponse,
     EnrichmentJobCancelResponse,
@@ -18,8 +18,8 @@ from models.enrichment_jobs import (
     EnrichmentJobResponse,
     EnrichmentJobSummary,
 )
-from services.enrichment_client import EnrichmentServiceError, fetch_paid_enrichment
-from services.enrichment_jobs import (
+from modules.enrichment.client import EnrichmentServiceError, fetch_paid_enrichment
+from modules.enrichment.jobs import (
     cancel_enrichment_job,
     create_enrichment_job,
     estimate_enrichment_job,
@@ -28,7 +28,7 @@ from services.enrichment_jobs import (
     list_enrichment_job_items,
     list_enrichment_jobs,
 )
-from services.entitlements import has_entitlement
+from modules.enrichment.entitlements import has_entitlement
 
 router = APIRouter()
 

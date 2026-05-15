@@ -2,15 +2,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from models.enrichment import (
+from modules.enrichment.schemas import (
     EnrichmentContact,
     EnrichmentDomain,
     PaidEnrichmentDetail,
 )
-from models.enrichment_jobs import EnrichmentEstimateRequest, EnrichmentJobCreateRequest
-from routers.paid_enrichment import _normalize_cnpj, _require_account_id
-from services.enrichment_client import EnrichmentServiceError, fetch_paid_enrichment
-from services.enrichment_jobs import (
+from modules.enrichment.job_schemas import EnrichmentEstimateRequest, EnrichmentJobCreateRequest
+from modules.enrichment.router import _normalize_cnpj, _require_account_id
+from modules.enrichment.client import EnrichmentServiceError, fetch_paid_enrichment
+from modules.enrichment.jobs import (
     Candidate,
     cancel_enrichment_job,
     create_enrichment_job,
@@ -20,7 +20,7 @@ from services.enrichment_jobs import (
     list_enrichment_job_items,
     list_enrichment_jobs,
 )
-from services.entitlements import has_entitlement
+from modules.enrichment.entitlements import has_entitlement
 
 
 class FakeAcquire:
@@ -204,7 +204,7 @@ class TestEnrichmentClient:
         }
         FakeAsyncClient.next_response = FakeResponse(200, payload)
 
-        with patch("services.enrichment_client.httpx.AsyncClient", FakeAsyncClient):
+        with patch("modules.enrichment.client.httpx.AsyncClient", FakeAsyncClient):
             detail = await fetch_paid_enrichment(
                 "12345678000190",
                 account_id="acct",
@@ -224,7 +224,7 @@ class TestEnrichmentClient:
             {"cnpj": "12345678000190", "status": "not_enriched", "domains": [], "contacts": []},
         )
 
-        with patch("services.enrichment_client.httpx.AsyncClient", FakeAsyncClient):
+        with patch("modules.enrichment.client.httpx.AsyncClient", FakeAsyncClient):
             await fetch_paid_enrichment("12345678000190", account_id="acct")
 
         assert "X-Request-Id" not in FakeAsyncClient.last_headers
@@ -232,14 +232,14 @@ class TestEnrichmentClient:
     @pytest.mark.asyncio
     async def test_fetch_paid_enrichment_raises_for_4xx(self):
         FakeAsyncClient.next_response = FakeResponse(403, {"detail": "forbidden"})
-        with patch("services.enrichment_client.httpx.AsyncClient", FakeAsyncClient):
+        with patch("modules.enrichment.client.httpx.AsyncClient", FakeAsyncClient):
             with pytest.raises(EnrichmentServiceError, match="rejected"):
                 await fetch_paid_enrichment("12345678000190", account_id="acct")
 
     @pytest.mark.asyncio
     async def test_fetch_paid_enrichment_raises_for_5xx(self):
         FakeAsyncClient.next_response = FakeResponse(503, {"detail": "down"})
-        with patch("services.enrichment_client.httpx.AsyncClient", FakeAsyncClient):
+        with patch("modules.enrichment.client.httpx.AsyncClient", FakeAsyncClient):
             with pytest.raises(EnrichmentServiceError, match="unavailable"):
                 await fetch_paid_enrichment("12345678000190", account_id="acct")
 
@@ -274,7 +274,7 @@ class TestPaidRouter:
 
     @pytest.mark.asyncio
     async def test_paid_enrichment_rejects_invalid_cnpj_before_pool(self, client):
-        with patch("routers.paid_enrichment.get_pool", new_callable=AsyncMock) as get_pool:
+        with patch("modules.enrichment.router.get_pool", new_callable=AsyncMock) as get_pool:
             response = await client.get(
                 "/v1/paid/empresa/123/enrichment",
                 headers={"X-Account-Id": "acct"},
@@ -284,7 +284,7 @@ class TestPaidRouter:
 
     @pytest.mark.asyncio
     async def test_paid_enrichment_forbids_missing_entitlement(self, client, mock_pool):
-        with patch("routers.paid_enrichment.has_entitlement", new_callable=AsyncMock, return_value=False):
+        with patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=False):
             response = await client.get(
                 "/v1/paid/empresa/12345678000190/enrichment",
                 headers={"X-Account-Id": "acct"},
@@ -295,8 +295,8 @@ class TestPaidRouter:
     async def test_paid_enrichment_returns_service_payload(self, client, mock_pool):
         detail = PaidEnrichmentDetail(cnpj="12345678000190", status="not_enriched")
         with (
-            patch("routers.paid_enrichment.has_entitlement", new_callable=AsyncMock, return_value=True),
-            patch("routers.paid_enrichment.fetch_paid_enrichment", new_callable=AsyncMock, return_value=detail) as fetch,
+            patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=True),
+            patch("modules.enrichment.router.fetch_paid_enrichment", new_callable=AsyncMock, return_value=detail) as fetch,
         ):
             response = await client.get(
                 "/v1/paid/empresa/12345678000190/enrichment",
@@ -310,9 +310,9 @@ class TestPaidRouter:
     @pytest.mark.asyncio
     async def test_paid_enrichment_maps_service_errors_to_502(self, client):
         with (
-            patch("routers.paid_enrichment.has_entitlement", new_callable=AsyncMock, return_value=True),
+            patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=True),
             patch(
-                "routers.paid_enrichment.fetch_paid_enrichment",
+                "modules.enrichment.router.fetch_paid_enrichment",
                 new_callable=AsyncMock,
                 side_effect=EnrichmentServiceError("down"),
             ),
@@ -326,7 +326,7 @@ class TestPaidRouter:
 
     @pytest.mark.asyncio
     async def test_estimate_job_requires_bulk_entitlement(self, client):
-        with patch("routers.paid_enrichment.has_entitlement", new_callable=AsyncMock, return_value=False):
+        with patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=False):
             response = await client.post(
                 "/v1/paid/enrichment/estimate",
                 headers={"X-Account-Id": "acct"},
@@ -348,8 +348,8 @@ class TestPaidRouter:
             "estimated_seconds_max": 8,
         }
         with (
-            patch("routers.paid_enrichment.has_entitlement", new_callable=AsyncMock, return_value=True),
-            patch("routers.paid_enrichment.estimate_enrichment_job", new_callable=AsyncMock, return_value=estimate),
+            patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=True),
+            patch("modules.enrichment.router.estimate_enrichment_job", new_callable=AsyncMock, return_value=estimate),
         ):
             response = await client.post(
                 "/v1/paid/enrichment/estimate",
@@ -361,7 +361,7 @@ class TestPaidRouter:
 
     @pytest.mark.asyncio
     async def test_create_job_route_returns_job(self, client):
-        from models.enrichment_jobs import EnrichmentJobResponse
+        from modules.enrichment.job_schemas import EnrichmentJobResponse
 
         job = EnrichmentJobResponse(
             source_type="selection",
@@ -377,8 +377,8 @@ class TestPaidRouter:
             status="queued",
         )
         with (
-            patch("routers.paid_enrichment.has_entitlement", new_callable=AsyncMock, return_value=True),
-            patch("routers.paid_enrichment.create_enrichment_job", new_callable=AsyncMock, return_value=job) as create,
+            patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=True),
+            patch("modules.enrichment.router.create_enrichment_job", new_callable=AsyncMock, return_value=job) as create,
         ):
             response = await client.post(
                 "/v1/paid/enrichment/jobs",
@@ -392,8 +392,8 @@ class TestPaidRouter:
     @pytest.mark.asyncio
     async def test_job_detail_404_when_missing(self, client):
         with (
-            patch("routers.paid_enrichment.has_entitlement", new_callable=AsyncMock, return_value=True),
-            patch("routers.paid_enrichment.get_enrichment_job", new_callable=AsyncMock, return_value=None),
+            patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=True),
+            patch("modules.enrichment.router.get_enrichment_job", new_callable=AsyncMock, return_value=None),
         ):
             response = await client.get(
                 "/v1/paid/enrichment/jobs/99",
@@ -404,7 +404,7 @@ class TestPaidRouter:
     @pytest.mark.asyncio
     async def test_job_routes_return_success_payloads(self, client):
         from datetime import datetime
-        from models.enrichment_jobs import (
+        from modules.enrichment.job_schemas import (
             EnrichmentJobCancelResponse,
             EnrichmentJobItemsResponse,
             EnrichmentJobItem,
@@ -426,12 +426,12 @@ class TestPaidRouter:
             created_at=datetime.now(),
         )
         with (
-            patch("routers.paid_enrichment.has_entitlement", new_callable=AsyncMock, return_value=True),
-            patch("routers.paid_enrichment.list_enrichment_jobs", new_callable=AsyncMock, return_value=EnrichmentJobListResponse(jobs=[summary])),
-            patch("routers.paid_enrichment.get_enrichment_job", new_callable=AsyncMock, return_value=summary),
-            patch("routers.paid_enrichment.list_enrichment_job_items", new_callable=AsyncMock, return_value=EnrichmentJobItemsResponse(job_id=1, items=[EnrichmentJobItem(cnpj="12345678000190", status="pending")])),
-            patch("routers.paid_enrichment.cancel_enrichment_job", new_callable=AsyncMock, return_value=1),
-            patch("routers.paid_enrichment.export_enrichment_job_csv", new_callable=AsyncMock, return_value="cnpj\n123\n"),
+            patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=True),
+            patch("modules.enrichment.router.list_enrichment_jobs", new_callable=AsyncMock, return_value=EnrichmentJobListResponse(jobs=[summary])),
+            patch("modules.enrichment.router.get_enrichment_job", new_callable=AsyncMock, return_value=summary),
+            patch("modules.enrichment.router.list_enrichment_job_items", new_callable=AsyncMock, return_value=EnrichmentJobItemsResponse(job_id=1, items=[EnrichmentJobItem(cnpj="12345678000190", status="pending")])),
+            patch("modules.enrichment.router.cancel_enrichment_job", new_callable=AsyncMock, return_value=1),
+            patch("modules.enrichment.router.export_enrichment_job_csv", new_callable=AsyncMock, return_value="cnpj\n123\n"),
         ):
             headers = {"X-Account-Id": "acct"}
             list_response = await client.get("/v1/paid/enrichment/jobs", headers=headers)
