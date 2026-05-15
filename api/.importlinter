@@ -1,0 +1,34 @@
+[importlinter]
+root_packages =
+    core
+    modules
+include_external_packages = False
+
+# R1: scaffold só registra os pacotes. Contracts estritos entram na fase R4
+# (após R2/R3 moverem o código existente para a nova estrutura).
+#
+# Quando R4 chegar, ativaremos os seguintes contracts:
+#
+# [importlinter:contract:modules-isolation]
+# name = Modules cannot import other modules directly
+# type = independence
+# modules =
+#     modules.auth
+#     modules.prospecting
+#     modules.enrichment
+#     modules.billing
+#     modules.bairros
+#     modules.cnaes
+#     modules.empresa
+#     modules.export
+#     modules.status
+#
+# [importlinter:contract:module-layers-auth]
+# name = Auth module respects router -> service -> repository
+# type = layers
+# layers =
+#     router
+#     service
+#     repository
+# containers =
+#     modules.auth
