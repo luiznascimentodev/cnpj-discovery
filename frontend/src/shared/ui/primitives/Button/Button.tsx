@@ -37,9 +37,22 @@ export interface ButtonProps
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading = false, disabled, children, ...props }, ref) => {
-    const Comp = asChild ? Slot : 'button'
+    if (asChild) {
+      // Radix Slot exige exatamente UM filho. Não injetamos spinner aqui — quem usa asChild
+      // não deve estar em estado loading (geralmente é um <Link>).
+      return (
+        <Slot
+          ref={ref}
+          className={cn(buttonVariants({ variant, size }), className)}
+          aria-busy={loading || undefined}
+          {...props}
+        >
+          {children}
+        </Slot>
+      )
+    }
     return (
-      <Comp
+      <button
         ref={ref}
         className={cn(buttonVariants({ variant, size }), className)}
         disabled={disabled ?? loading}
@@ -48,7 +61,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       >
         {loading && <Loader2 className="animate-spin" size={16} aria-hidden="true" />}
         {children}
-      </Comp>
+      </button>
     )
   }
 )
