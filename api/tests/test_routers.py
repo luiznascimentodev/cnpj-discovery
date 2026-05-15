@@ -302,7 +302,7 @@ class TestExportRouter:
     @pytest.mark.asyncio
     async def test_export_batches_large_result(self, client: AsyncClient, mock_pool):
         """Verifica que linhas são emitidas em batches quando ultrapassam _BATCH_ROWS."""
-        from routers.export import _BATCH_ROWS
+        from modules.export.router import _BATCH_ROWS
         rows = [EMPRESA_ROW] * (_BATCH_ROWS + 1)
         mock_conn = make_mock_conn(cursor_rows=rows)
         setup_pool(mock_pool, mock_conn)
