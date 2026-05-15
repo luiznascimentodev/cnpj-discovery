@@ -36,7 +36,9 @@ export function Combobox({
         <button
           type="button"
           role="combobox"
+          aria-controls="combobox-listbox"
           aria-expanded={open}
+          aria-haspopup="listbox"
           className={cn(
             'flex h-10 w-full items-center justify-between rounded-md border border-[var(--color-border-strong)]',
             'bg-[var(--color-bg-surface)] px-3 text-left text-[var(--text-base)]',

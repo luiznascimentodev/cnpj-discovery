@@ -11,7 +11,7 @@ export default defineConfig([
   globalIgnores(['dist', 'playwright-report', '.superpowers', 'coverage']),
   {
     files: ['**/*.{ts,tsx}'],
-    plugins: { boundaries, 'jsx-a11y': jsxA11y },
+    plugins: { boundaries },
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
@@ -65,6 +65,22 @@ export default defineConfig([
     files: ['src/pages/*/legacy/**/*.{ts,tsx}'],
     rules: {
       // Quarantined legacy code: relaxed rules until rewritten on the design system.
+      'no-restricted-imports': 'off',
+      'jsx-a11y/click-events-have-key-events': 'off',
+      'jsx-a11y/no-noninteractive-element-interactions': 'off',
+      'jsx-a11y/no-static-element-interactions': 'off',
+    },
+  },
+  {
+    files: ['src/shared/ui/primitives/**/*.tsx'],
+    rules: {
+      // Radix re-export pattern intentionally exports multiple components per file.
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
+    files: ['src/shared/ui/icons/**/*.ts'],
+    rules: {
       'no-restricted-imports': 'off',
     },
   },

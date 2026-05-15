@@ -1,5 +1,6 @@
 import { cn } from '@/shared/lib'
-import type { LucideIcon } from 'lucide-react'
+import type { ComponentType, SVGProps } from 'react'
+type LucideIcon = ComponentType<SVGProps<SVGSVGElement> & { size?: number | string }>
 
 export interface EmptyStateProps {
   icon: LucideIcon

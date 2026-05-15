@@ -1,6 +1,6 @@
-/* eslint-disable no-restricted-imports -- único lugar autorizado a importar de lucide-react */
 // Apenas os ícones em uso explicito ficam aqui — tree-shaking garante 0 ícones não usados no bundle.
 // Para adicionar um ícone novo: passe o nome do componente lucide aqui (https://lucide.dev/icons).
+// Este é o único arquivo autorizado a importar de lucide-react (override em eslint.config.js).
 export {
   // Navegação principal
   Search,
