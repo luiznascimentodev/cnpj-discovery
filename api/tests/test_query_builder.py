@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from models.detail import CnaeItem, EmpresaDetail, SimplesOut, SocioOut
-from models.empresa import EmpresaOut
+from modules.empresa import EmpresaOut
 from models.filters import ProspectingFilters
 from services.query_builder import build_enrichment_candidate_query, build_prospecting_query
 

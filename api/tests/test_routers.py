@@ -521,9 +521,9 @@ class TestEmpresaRouter:
     @pytest.mark.asyncio
     async def test_found_without_punctuation(self, client: AsyncClient):
         pool = make_empresa_pool([DETAIL_ROW, None], [[]])
-        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.empresa.cache_set", AsyncMock()):
-                with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.empresa.router.cache_set", AsyncMock()):
+                with patch("modules.empresa.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/empresa/12345678000190")
         assert response.status_code == 200
         data = response.json()
@@ -533,9 +533,9 @@ class TestEmpresaRouter:
     @pytest.mark.asyncio
     async def test_found_with_punctuation(self, client: AsyncClient):
         pool = make_empresa_pool([DETAIL_ROW, None], [[]])
-        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.empresa.cache_set", AsyncMock()):
-                with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.empresa.router.cache_set", AsyncMock()):
+                with patch("modules.empresa.router.get_pool", AsyncMock(return_value=pool)):
                     # dots and hyphens only — slashes can't be URL path segments
                     response = await client.get("/v1/empresa/12.345.678.0001-90")
         assert response.status_code == 200
@@ -543,23 +543,23 @@ class TestEmpresaRouter:
     @pytest.mark.asyncio
     async def test_not_found_returns_404(self, client: AsyncClient):
         pool = make_empresa_pool([None], [[]])
-        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.empresa.cache_set", AsyncMock()):
-                with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.empresa.router.cache_set", AsyncMock()):
+                with patch("modules.empresa.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/empresa/00000000000000")
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_invalid_cnpj_returns_422(self, client: AsyncClient):
-        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=None)):
             response = await client.get("/v1/empresa/123")
         assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_cache_hit_skips_db(self, client: AsyncClient):
         cached = {**DETAIL_ROW, "cnae_secundarios": [], "socios": [], "simples": None}
-        with patch("routers.empresa.cache_get", AsyncMock(return_value=cached)):
-            with patch("routers.empresa.get_pool") as mock_get_pool:
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=cached)):
+            with patch("modules.empresa.router.get_pool") as mock_get_pool:
                 response = await client.get("/v1/empresa/12345678000190")
         assert response.status_code == 200
         mock_get_pool.assert_not_called()
@@ -571,9 +571,9 @@ class TestEmpresaRouter:
             "qualificacao_descricao": "Sócio", "data_entrada": None, "faixa_etaria": None,
         }
         pool = make_empresa_pool([DETAIL_ROW, None], [[socio]])
-        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.empresa.cache_set", AsyncMock()):
-                with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.empresa.router.cache_set", AsyncMock()):
+                with patch("modules.empresa.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/empresa/12345678000190")
         assert response.status_code == 200
         assert response.json()["socios"][0]["nome_socio"] == "MARIA"
@@ -581,9 +581,9 @@ class TestEmpresaRouter:
     @pytest.mark.asyncio
     async def test_enrichment_available_flag_false_by_default(self, client: AsyncClient):
         pool = make_empresa_pool([DETAIL_ROW, None], [[]])
-        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.empresa.cache_set", AsyncMock()):
-                with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.empresa.router.cache_set", AsyncMock()):
+                with patch("modules.empresa.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/empresa/12345678000190")
         body = response.json()
         assert body["enrichment_available"] is False
@@ -614,9 +614,9 @@ class TestEmpresaRouter:
             "last_seen": None,
         }
         pool = make_empresa_pool([DETAIL_ROW, None], [[]], crawler_domains=[domain], crawler_contacts=[contact])
-        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.empresa.cache_set", AsyncMock()):
-                with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.empresa.router.cache_set", AsyncMock()):
+                with patch("modules.empresa.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/empresa/12345678000190")
         body = response.json()
         assert body["enrichment_available"] is True
@@ -632,9 +632,9 @@ class TestEmpresaRouter:
             "opcao_mei": "N", "data_opcao_mei": None, "data_exc_mei": None,
         }
         pool = make_empresa_pool([DETAIL_ROW, simples], [[]])
-        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.empresa.cache_set", AsyncMock()):
-                with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.empresa.router.cache_set", AsyncMock()):
+                with patch("modules.empresa.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/empresa/12345678000190")
         assert response.json()["simples"]["opcao_simples"] == "S"
 
@@ -646,9 +646,9 @@ class TestEmpresaRouter:
             {"codigo": 4321500, "descricao": "Instalações"},
         ]
         pool = make_empresa_pool([row, None], [cnae_rows, []])
-        with patch("routers.empresa.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.empresa.cache_set", AsyncMock()):
-                with patch("routers.empresa.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.empresa.router.cache_set", AsyncMock()):
+                with patch("modules.empresa.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/empresa/12345678000190")
         secundarios = response.json()["cnae_secundarios"]
         assert len(secundarios) == 2

@@ -22,12 +22,11 @@ from core.db import create_pool, close_pool
 from core.middleware.concurrency_monitor import ThunderingHerdMiddleware
 from core.middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
 from core.middleware.query_monitor import N1DetectorMiddleware
-from modules import status
+from modules import empresa, status
 from routers import (
     bairros,
     billing_webhook,
     cnaes,
-    empresa,
     export,
     paid_enrichment,
     prospecting,

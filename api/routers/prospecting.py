@@ -5,7 +5,7 @@ from core.cache import cache_get, cache_set, make_cache_key
 from core.db import get_pool
 from core.dependencies import prospecting_filters_dependency
 from models.filters import ProspectingFilters
-from models.empresa import EmpresaOut
+from modules.empresa import EmpresaOut
 from services.query_builder import build_prospecting_query
 
 router = APIRouter()
