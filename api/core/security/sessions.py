@@ -95,3 +95,14 @@ async def destroy_session(redis, session_id: str) -> None:
     await redis.delete(_session_key(session_id))
     if data is not None:
         await redis.srem(_user_sessions_key(data.user_id), session_id)
+
+
+async def destroy_user_sessions(redis, user_id: UUID) -> int:
+    key = _user_sessions_key(user_id)
+    session_ids = await redis.smembers(key)
+    deleted = 0
+    for session_id in session_ids:
+        await redis.delete(_session_key(session_id))
+        deleted += 1
+    await redis.delete(key)
+    return deleted
