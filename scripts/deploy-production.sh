@@ -25,6 +25,11 @@ docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" up -d --build \
   domain-crawler-worker \
   domain-resolver-worker
 
+# Apply any pending SQL migrations. Postgres' docker-entrypoint-initdb.d only
+# runs on first volume init, so without this step new migrations added after
+# the initial provisioning are silently skipped.
+COMPOSE_FILES="${COMPOSE_FILES[*]}" scripts/apply-migrations.sh
+
 # Recreate nginx after upstream containers are running so Docker DNS is resolved
 # against the current container IPs after every deploy.
 docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" up -d --force-recreate nginx
