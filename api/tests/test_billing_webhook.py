@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from services.billing import (
+from modules.billing.service import (
     ALL_FEATURES,
     DEFAULT_PLAN_FEATURES,
     SUPPORTED_STATUSES,
@@ -15,7 +15,7 @@ from services.billing import (
     features_for_plan,
     parse_subscription_event,
 )
-from services.stripe_signature import (
+from modules.billing.stripe_signature import (
     SignatureVerificationError,
     verify_stripe_signature,
 )
@@ -383,7 +383,7 @@ class TestWebhookEndpoint:
         with (
             patch("core.config.settings.stripe_webhook_secret", secret),
             patch(
-                "routers.billing_webhook.apply_subscription_event",
+                "modules.billing.router.apply_subscription_event",
                 new_callable=AsyncMock,
             ) as apply,
         ):

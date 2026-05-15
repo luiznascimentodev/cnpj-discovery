@@ -23,11 +23,9 @@ from core.middleware.concurrency_monitor import ThunderingHerdMiddleware
 from core.middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
 from core.middleware.query_monitor import N1DetectorMiddleware
 from modules import bairros, cnaes, empresa, export, status
+from modules.billing.router import router as billing_router
 from modules.enrichment.router import router as enrichment_router
 from modules.prospecting.router import router as prospecting_router
-from routers import (
-    billing_webhook,
-)
 
 
 @asynccontextmanager
@@ -103,7 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(cnaes.router, prefix="/v1")
     app.include_router(empresa.router, prefix="/v1")
     app.include_router(enrichment_router, prefix="/v1")
-    app.include_router(billing_webhook.router, prefix="/v1")
+    app.include_router(billing_router, prefix="/v1")
     app.include_router(export.router, prefix="/v1")
     app.include_router(status.router, prefix="/v1")
 

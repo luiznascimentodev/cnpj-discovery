@@ -36,7 +36,7 @@ async def client(mock_pool):
         patch("modules.empresa.router.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("modules.bairros.router.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("modules.enrichment.router.get_pool", new_callable=AsyncMock, return_value=mock_pool),
-        patch("routers.billing_webhook.get_pool", new_callable=AsyncMock, return_value=mock_pool),
+        patch("modules.billing.router.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("modules.prospecting.router.cache_get", new_callable=AsyncMock, return_value=None),
         patch("modules.prospecting.router.cache_set", new_callable=AsyncMock),
         patch("modules.cnaes.router.cache_get", new_callable=AsyncMock, return_value=None),

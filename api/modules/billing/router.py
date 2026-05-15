@@ -6,8 +6,8 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 
 from core.config import settings
 from core.db import get_pool
-from services.billing import apply_subscription_event, parse_subscription_event
-from services.stripe_signature import (
+from modules.billing.service import apply_subscription_event, parse_subscription_event
+from modules.billing.stripe_signature import (
     SignatureVerificationError,
     verify_stripe_signature,
 )
