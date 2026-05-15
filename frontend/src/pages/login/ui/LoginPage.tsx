@@ -9,6 +9,11 @@ import { Input } from '@/shared/ui/primitives/Input'
 import { Label } from '@/shared/ui/primitives/Label'
 import { Container } from '@/shared/ui/layout/Container'
 
+const DEMO_LOGIN: LoginFormValues = {
+  email: 'demo@cnpjdiscovery.com.br',
+  password: 'Demonstracao123!',
+}
+
 export function LoginPage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -23,6 +28,13 @@ export function LoginPage() {
     await login.mutateAsync(values)
     navigate(params.get('next') || '/app/prospeccao', { replace: true })
   })
+
+  const handleDemoLogin = async () => {
+    form.setValue('email', DEMO_LOGIN.email, { shouldValidate: true })
+    form.setValue('password', DEMO_LOGIN.password, { shouldValidate: true })
+    await login.mutateAsync(DEMO_LOGIN)
+    navigate(params.get('next') || '/app/prospeccao', { replace: true })
+  }
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-app)] py-12">
@@ -63,6 +75,33 @@ export function LoginPage() {
             <Link to="/registro" className="text-[var(--color-action)] hover:underline">
               Criar conta
             </Link>
+          </div>
+          <div className="mt-6 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-4">
+            <h2 className="text-[var(--text-sm)] font-semibold text-[var(--color-fg-primary)]">
+              Login de demonstração
+            </h2>
+            <p className="mt-1 text-[var(--text-xs)] text-[var(--color-fg-muted)]">
+              Use uma conta pronta para avaliar o sistema sem cadastro.
+            </p>
+            <dl className="mt-3 grid gap-1 text-[var(--text-xs)] text-[var(--color-fg-muted)]">
+              <div className="flex justify-between gap-3">
+                <dt>E-mail</dt>
+                <dd className="font-medium text-[var(--color-fg-primary)]">{DEMO_LOGIN.email}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt>Senha</dt>
+                <dd className="font-medium text-[var(--color-fg-primary)]">{DEMO_LOGIN.password}</dd>
+              </div>
+            </dl>
+            <Button
+              type="button"
+              variant="secondary"
+              className="mt-3 w-full"
+              onClick={handleDemoLogin}
+              disabled={login.isPending}
+            >
+              Entrar com demonstração
+            </Button>
           </div>
         </div>
       </Container>
