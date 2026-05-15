@@ -16,22 +16,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from cache import create_cache, close_cache
-from config import settings
-from database import create_pool, close_pool
-from middleware.concurrency_monitor import ThunderingHerdMiddleware
-from middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
-from middleware.query_monitor import N1DetectorMiddleware
-from routers import (
-    bairros,
-    billing_webhook,
-    cnaes,
-    empresa,
-    export,
-    paid_enrichment,
-    prospecting,
-    status,
-)
+from core.cache import create_cache, close_cache
+from core.config import settings
+from core.db import create_pool, close_pool
+from core.middleware.concurrency_monitor import ThunderingHerdMiddleware
+from core.middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
+from core.middleware.query_monitor import N1DetectorMiddleware
+from modules import bairros, cnaes, empresa, export, status
+from modules.auth.router import router as auth_router
+from modules.billing.router import router as billing_router
+from modules.enrichment.router import router as enrichment_router
+from modules.prospecting.router import router as prospecting_router
 
 
 @asynccontextmanager
@@ -75,6 +70,7 @@ def create_app() -> FastAPI:
             {"name": "export", "description": "Exportação de dados em CSV"},
             {"name": "paid_enrichment", "description": "Dados pagos de enriquecimento via crawler"},
             {"name": "billing", "description": "Stripe webhook receiver"},
+            {"name": "auth", "description": "Autenticação e sessão de usuários"},
             {"name": "status", "description": "Status do ETL e estatísticas"},
         ],
         lifespan=lifespan,
@@ -102,12 +98,13 @@ def create_app() -> FastAPI:
     async def health():
         return {"status": "ok", "version": "1.0.0"}
 
-    app.include_router(prospecting.router, prefix="/v1")
+    app.include_router(prospecting_router, prefix="/v1")
+    app.include_router(auth_router, prefix="/v1")
     app.include_router(bairros.router, prefix="/v1")
     app.include_router(cnaes.router, prefix="/v1")
     app.include_router(empresa.router, prefix="/v1")
-    app.include_router(paid_enrichment.router, prefix="/v1")
-    app.include_router(billing_webhook.router, prefix="/v1")
+    app.include_router(enrichment_router, prefix="/v1")
+    app.include_router(billing_router, prefix="/v1")
     app.include_router(export.router, prefix="/v1")
     app.include_router(status.router, prefix="/v1")
 

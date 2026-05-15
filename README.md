@@ -100,6 +100,9 @@ Verifique que PostgreSQL e Redis estão healthy:
 docker compose ps
 ```
 
+Mailpit fica disponível em `http://localhost:8025` para capturar e-mails de
+verificação e recuperação de senha no ambiente de desenvolvimento.
+
 ### 4. Carregar dados (ETL)
 
 ```bash

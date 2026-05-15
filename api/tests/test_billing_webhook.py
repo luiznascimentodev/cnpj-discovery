@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from services.billing import (
+from modules.billing.service import (
     ALL_FEATURES,
     DEFAULT_PLAN_FEATURES,
     SUPPORTED_STATUSES,
@@ -15,7 +15,7 @@ from services.billing import (
     features_for_plan,
     parse_subscription_event,
 )
-from services.stripe_signature import (
+from modules.billing.stripe_signature import (
     SignatureVerificationError,
     verify_stripe_signature,
 )
@@ -321,7 +321,7 @@ class TestWebhookEndpoint:
 
     @pytest.mark.asyncio
     async def test_rejects_invalid_signature(self, client):
-        with patch("config.settings.stripe_webhook_secret", "whsec"):
+        with patch("core.config.settings.stripe_webhook_secret", "whsec"):
             response = await client.post(
                 "/v1/billing/webhook",
                 content=b"{}",
@@ -336,7 +336,7 @@ class TestWebhookEndpoint:
         ts = int(time.time())
         header = _sign(payload, secret, ts)
 
-        with patch("config.settings.stripe_webhook_secret", secret):
+        with patch("core.config.settings.stripe_webhook_secret", secret):
             response = await client.post(
                 "/v1/billing/webhook",
                 content=payload,
@@ -353,7 +353,7 @@ class TestWebhookEndpoint:
         ts = int(time.time())
         header = _sign(payload, secret, ts)
 
-        with patch("config.settings.stripe_webhook_secret", secret):
+        with patch("core.config.settings.stripe_webhook_secret", secret):
             response = await client.post(
                 "/v1/billing/webhook",
                 content=payload,
@@ -381,9 +381,9 @@ class TestWebhookEndpoint:
         header = _sign(payload, secret, ts)
 
         with (
-            patch("config.settings.stripe_webhook_secret", secret),
+            patch("core.config.settings.stripe_webhook_secret", secret),
             patch(
-                "routers.billing_webhook.apply_subscription_event",
+                "modules.billing.router.apply_subscription_event",
                 new_callable=AsyncMock,
             ) as apply,
         ):

@@ -19,4 +19,25 @@ describe('Pagination', () => {
     expect(screen.getByLabelText('Próxima página')).toBeDisabled()
     expect(screen.getByLabelText('Página anterior')).toBeDisabled()
   })
+
+  it('exibe total e altera tamanho de página', async () => {
+    const onPageSizeChange = vi.fn()
+    render(
+      <Pagination
+        hasPrev={false}
+        hasNext={false}
+        onPrev={vi.fn()}
+        onNext={vi.fn()}
+        pageSize={25}
+        pageSizeOptions={[25, 50]}
+        totalLabel="128 resultados"
+        onPageSizeChange={onPageSizeChange}
+      />
+    )
+
+    expect(screen.getByText('128 resultados')).toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByRole('combobox'), '50')
+
+    expect(onPageSizeChange).toHaveBeenCalledWith(50)
+  })
 })

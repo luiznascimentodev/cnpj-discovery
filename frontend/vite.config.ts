@@ -27,7 +27,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/shared/**', 'src/entities/**', 'src/widgets/**'],
-      exclude: ['**/*.test.{ts,tsx}', '**/index.ts', 'src/test/**'],
+      exclude: ['**/*.test.{ts,tsx}', '**/index.ts', '**/types.ts', '**/.gitkeep', 'src/test/**'],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 75 },
     },
   },

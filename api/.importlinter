@@ -1,0 +1,18 @@
+[importlinter]
+root_packages =
+    core
+    modules
+    models
+    routers
+    services
+include_external_packages = False
+
+[importlinter:contract:modules-do-not-use-legacy-packages]
+name = Modules cannot import legacy routers, services, or models packages
+type = forbidden
+source_modules =
+    modules
+forbidden_modules =
+    routers
+    services
+    models

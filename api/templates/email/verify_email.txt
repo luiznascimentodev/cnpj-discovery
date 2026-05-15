@@ -1,0 +1,4 @@
+Olá, {{ name }}.
+
+Confirme seu e-mail para ativar sua conta no CNPJ Discovery:
+{{ verify_url }}

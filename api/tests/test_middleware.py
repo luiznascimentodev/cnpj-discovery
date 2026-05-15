@@ -4,10 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from database import query_count
-from middleware.concurrency_monitor import ThunderingHerdMiddleware, _inflight
-from middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
-from middleware.query_monitor import N1DetectorMiddleware, _N1_THRESHOLD
+from core.db import query_count
+from core.middleware.concurrency_monitor import ThunderingHerdMiddleware, _inflight
+from core.middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
+from core.middleware.query_monitor import N1DetectorMiddleware, _N1_THRESHOLD
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ class TestN1DetectorMiddleware:
             query_count.set(_N1_THRESHOLD + 1)
 
         mw = N1DetectorMiddleware(mock_app)
-        with patch("middleware.query_monitor.logger") as mock_logger:
+        with patch("core.middleware.query_monitor.logger") as mock_logger:
             await mw(make_scope(), noop_receive, noop_send)
         mock_logger.warning.assert_called_once()
         assert "N+1" in mock_logger.warning.call_args[0][0]
@@ -79,7 +79,7 @@ class TestN1DetectorMiddleware:
             query_count.set(1)
 
         mw = N1DetectorMiddleware(mock_app)
-        with patch("middleware.query_monitor.logger") as mock_logger:
+        with patch("core.middleware.query_monitor.logger") as mock_logger:
             await mw(make_scope(), noop_receive, noop_send)
         mock_logger.debug.assert_called_once()
 
@@ -102,7 +102,7 @@ class TestSlowRequestMiddleware:
             pass
 
         mw = SlowRequestMiddleware(mock_app)
-        with patch("middleware.memory_monitor.logger") as mock_logger:
+        with patch("core.middleware.memory_monitor.logger") as mock_logger:
             await mw(make_scope(), noop_receive, noop_send)
         mock_logger.warning.assert_not_called()
 
@@ -181,9 +181,9 @@ class TestRssMonitorLoop:
             if sleep_calls >= 2:
                 raise asyncio.CancelledError()
 
-        with patch("middleware.memory_monitor.asyncio.sleep", side_effect=fast_sleep), \
-             patch("middleware.memory_monitor.logger") as mock_logger, \
-             patch("middleware.memory_monitor.resource.getrusage") as mock_rss:
+        with patch("core.middleware.memory_monitor.asyncio.sleep", side_effect=fast_sleep), \
+             patch("core.middleware.memory_monitor.logger") as mock_logger, \
+             patch("core.middleware.memory_monitor.resource.getrusage") as mock_rss:
             mock_rss.return_value.ru_maxrss = 100 * 1024  # 100 MB, below 512 threshold
             with pytest.raises(asyncio.CancelledError):
                 await rss_monitor_loop()
@@ -200,9 +200,9 @@ class TestRssMonitorLoop:
             if sleep_calls >= 2:
                 raise asyncio.CancelledError()
 
-        with patch("middleware.memory_monitor.asyncio.sleep", side_effect=fast_sleep), \
-             patch("middleware.memory_monitor.logger") as mock_logger, \
-             patch("middleware.memory_monitor.resource.getrusage") as mock_rss:
+        with patch("core.middleware.memory_monitor.asyncio.sleep", side_effect=fast_sleep), \
+             patch("core.middleware.memory_monitor.logger") as mock_logger, \
+             patch("core.middleware.memory_monitor.resource.getrusage") as mock_rss:
             mock_rss.return_value.ru_maxrss = 600 * 1024  # 600 MB, above 512 threshold
             with pytest.raises(asyncio.CancelledError):
                 await rss_monitor_loop()
