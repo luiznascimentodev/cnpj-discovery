@@ -430,7 +430,7 @@ class TestCnaesRouter:
             "all": [{"codigo": 6201500, "descricao": "Dev"}],
             "segments": [{"label": "Tecnologia, Software e Dados", "cnaes": [{"codigo": 6201500, "descricao": "Dev"}]}],
         }
-        with patch("routers.cnaes.cache_get", AsyncMock(return_value=cached)):
+        with patch("modules.cnaes.router.cache_get", AsyncMock(return_value=cached)):
             response = await client.get("/v1/cnaes")
         assert response.status_code == 200
         assert response.json() == cached
@@ -446,9 +446,9 @@ class TestCnaesRouter:
         pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("routers.cnaes.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.cnaes.cache_set", AsyncMock()) as mock_set:
-                with patch("routers.cnaes.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.cnaes.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.cnaes.router.cache_set", AsyncMock()) as mock_set:
+                with patch("modules.cnaes.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/cnaes")
 
         assert response.status_code == 200
@@ -469,9 +469,9 @@ class TestCnaesRouter:
         pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("routers.cnaes.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.cnaes.cache_set", AsyncMock()):
-                with patch("routers.cnaes.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.cnaes.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.cnaes.router.cache_set", AsyncMock()):
+                with patch("modules.cnaes.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/cnaes")
 
         data = response.json()

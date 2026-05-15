@@ -3,7 +3,7 @@ from fastapi import APIRouter
 
 from core.cache import cache_get, cache_set
 from core.db import get_pool
-from services.cnae_segments import build_cnae_catalog
+from modules.cnaes.service import build_cnae_catalog
 
 router = APIRouter()
 
