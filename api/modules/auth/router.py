@@ -127,7 +127,7 @@ async def register(payload: RegisterRequest, request: Request) -> MessageRespons
     return MessageResponse(message="Cadastro criado. Verifique seu e-mail.")
 
 
-@router.post("/verify-email", response_model=MessageResponse)
+@router.post("/verify-email", response_model=MessageResponse, dependencies=[Depends(csrf_dependency)])
 async def verify_email(payload: TokenRequest, request: Request) -> MessageResponse:
     await _limit(request, f"verify:ip:{_client_ip(request)}", window=3600, max_count=20)
     pool = await get_pool()
@@ -217,7 +217,7 @@ async def forgot_password(payload: EmailRequest, request: Request) -> MessageRes
     return MessageResponse(message="Se o e-mail existir, enviaremos instruções de recuperação.")
 
 
-@router.post("/reset-password", response_model=MessageResponse)
+@router.post("/reset-password", response_model=MessageResponse, dependencies=[Depends(csrf_dependency)])
 async def reset_password(payload: ResetPasswordRequest, request: Request) -> MessageResponse:
     await _limit(request, f"reset:ip:{_client_ip(request)}", window=3600, max_count=10)
     if len(payload.new_password) < 12:

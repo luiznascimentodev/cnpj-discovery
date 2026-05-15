@@ -27,7 +27,10 @@ export const authApi = {
     await getCsrf()
     return logout()
   },
-  verifyEmail,
+  verifyEmail: async (token: string) => {
+    await getCsrf()
+    return verifyEmail(token)
+  },
   resendVerification: async (email: string) => {
     await getCsrf()
     return resendVerification(email)
@@ -36,5 +39,8 @@ export const authApi = {
     await getCsrf()
     return forgotPassword(email)
   },
-  resetPassword,
+  resetPassword: async (token: string, password: string) => {
+    await getCsrf()
+    return resetPassword(token, password)
+  },
 }
