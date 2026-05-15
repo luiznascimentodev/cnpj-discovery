@@ -24,5 +24,12 @@ export * from './primitives/Kbd'
 export * from './primitives/VisuallyHidden'
 export * from './primitives/Combobox'
 
+// Data
+export * from './data/EmptyState'
+export * from './data/Skeleton'
+export * from './data/Stat'
+export * from './data/Pagination'
+export * from './data/DataTable'
+
 // Icons sub-barrel (consumers do `import { Icons } from '@/shared/ui'` ou import direto de @/shared/ui/icons)
 export * as Icons from './icons'
