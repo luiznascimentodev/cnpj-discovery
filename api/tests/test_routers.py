@@ -155,9 +155,12 @@ class TestProspectingRouter:
 
         response = await client.get("/v1/prospecting?uf=SP")
         assert response.status_code == 200
-        mock_conn.fetch.assert_called_once()
-        sql, *params = mock_conn.fetch.call_args[0]
-        assert "SP" in params
+        # Primeira página randomizada faz duas queries (enriched + non_enriched).
+        # Ambas devem passar o filtro de UF=SP.
+        assert mock_conn.fetch.call_count == 2
+        for call in mock_conn.fetch.call_args_list:
+            params = list(call.args[1:])
+            assert "SP" in params
 
     @pytest.mark.asyncio
     async def test_search_with_situacao_cadastral(self, client: AsyncClient, mock_pool):
@@ -207,6 +210,30 @@ class TestProspectingRouter:
             assert field in empresa
 
     @pytest.mark.asyncio
+    async def test_legacy_path_returns_cached_list_when_present(self, mock_pool):
+        # Caminho não-randomizado (cursor): cache antigo em formato lista
+        # deve continuar funcionando sem reconsultar o banco.
+        app = __import__("main", fromlist=["create_app"]).create_app()
+        from httpx import AsyncClient, ASGITransport
+        from unittest.mock import AsyncMock, patch
+
+        with patch("main.create_pool", new_callable=AsyncMock, return_value=mock_pool), \
+             patch("main.close_pool", new_callable=AsyncMock), \
+             patch("main.create_cache", new_callable=AsyncMock), \
+             patch("main.close_cache", new_callable=AsyncMock), \
+             patch("modules.prospecting.router.cache_get", new_callable=AsyncMock, return_value=[EMPRESA_ROW]), \
+             patch("modules.prospecting.router.cache_set", new_callable=AsyncMock), \
+             patch("modules.prospecting.router.get_pool", new_callable=AsyncMock, return_value=mock_pool):
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                response = await ac.get(
+                    "/v1/prospecting?cursor_cnpj_basico=12345678&cursor_cnpj_ordem=0001"
+                )
+
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    @pytest.mark.asyncio
     async def test_search_with_direct_cnpj_skips_randomization(self, client: AsyncClient, mock_pool):
         # Quando o filtro é um CNPJ específico, a randomização da primeira página
         # deve ser desligada (faz lookup direto, sem inflar o pool).
@@ -243,7 +270,9 @@ class TestProspectingRouter:
         from httpx import AsyncClient, ASGITransport
         from unittest.mock import AsyncMock, patch
 
-        cached_data = [EMPRESA_ROW]
+        # Formato v2 do cache: dois pools (enriquecidas / não-enriquecidas) que
+        # o router embaralha e concatena na resposta.
+        cached_data = {"enriched": [EMPRESA_ROW], "non_enriched": []}
 
         with patch("main.create_pool", new_callable=AsyncMock, return_value=mock_pool), \
              patch("main.close_pool", new_callable=AsyncMock), \

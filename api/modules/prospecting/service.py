@@ -103,10 +103,31 @@ def _cursor_sort_expr(param_index: int) -> str:
     )
 
 
-def build_prospecting_query(f: ProspectingFilters, *, include_limit: bool = True) -> tuple[str, list]:
+_ENRICHED_EXISTS_CLAUSE = (
+    "EXISTS (SELECT 1 FROM paid_enrichment.enriched_contacts ec "
+    "WHERE ec.cnpj_basico = est.cnpj_basico "
+    "AND ec.cnpj_ordem = est.cnpj_ordem "
+    "AND ec.cnpj_dv = est.cnpj_dv "
+    "AND ec.status = 'active')"
+)
+
+
+def build_prospecting_query(
+    f: ProspectingFilters,
+    *,
+    include_limit: bool = True,
+    enriched_filter: bool | None = None,
+) -> tuple[str, list]:
     """
     Builds parameterized SQL ($1, $2, …) for asyncpg.
     When f.cnpj is set, returns a PK lookup ignoring all other filters.
+
+    enriched_filter:
+      - None  → não filtra por enriquecimento (comportamento legado).
+      - True  → apenas empresas com ao menos um contato publicado.
+      - False → apenas empresas SEM contato publicado.
+    O router usa esse parâmetro para buscar dois pools separados e
+    apresentar enriquecidas primeiro com ordem aleatória dentro de cada grupo.
     """
     if f.cnpj:
         sql = (
@@ -188,6 +209,11 @@ def build_prospecting_query(f: ProspectingFilters, *, include_limit: bool = True
         simples_conditions.append(f"s.opcao_simples = ${p}")
         params.append("S" if f.opcao_simples else "N")
         p += 1
+
+    if enriched_filter is True:
+        est_conditions.append(_ENRICHED_EXISTS_CLAUSE)
+    elif enriched_filter is False:
+        est_conditions.append(f"NOT {_ENRICHED_EXISTS_CLAUSE}")
 
     if include_limit and not company_conditions and not simples_conditions:
         non_demais_conditions = [*est_conditions, "e_sort.porte IS DISTINCT FROM 5"]

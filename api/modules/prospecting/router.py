@@ -54,27 +54,61 @@ def _should_randomize(filters: ProspectingFilters) -> bool:
 async def search_empresas(filters: ProspectingFilters = Depends(prospecting_filters_dependency)):
     randomize = _should_randomize(filters)
 
-    if randomize:
-        pool_limit = min(filters.limit * _RANDOMIZE_POOL_MULTIPLIER, _RANDOMIZE_POOL_CAP)
-        fetch_filters = filters.model_copy(update={"limit": max(pool_limit, filters.limit)})
-    else:
-        fetch_filters = filters
+    if not randomize:
+        # Caminho legado: busca direta por CNPJ ou paginação por cursor.
+        # Mantém ordem determinística pra o cursor funcionar consistentemente.
+        cache_key = make_cache_key("prospecting", filters.model_dump())
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+        pool = await get_pool()
+        sql, params = build_prospecting_query(filters)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
+        result = _sort_demais_last([dict(r) for r in rows])
+        await cache_set(cache_key, result, ttl=_CACHE_TTL)
+        return result
 
-    cache_key = make_cache_key("prospecting", fetch_filters.model_dump())
+    # Primeira página randomizada: traz empresas JÁ enriquecidas primeiro
+    # (contato disponível imediato) e depois as ainda-não-enriquecidas, com
+    # ordem aleatória dentro de cada bloco. Cache compartilhado entre usuários,
+    # aleatoriedade é o shuffle em memória.
+    pool_limit = min(filters.limit * _RANDOMIZE_POOL_MULTIPLIER, _RANDOMIZE_POOL_CAP)
+    fetch_filters = filters.model_copy(update={"limit": max(pool_limit, filters.limit)})
+
+    # Prefixo v2 invalida cache antigo cujo formato era lista plana.
+    cache_key = make_cache_key("prospecting_v2", fetch_filters.model_dump())
     cached = await cache_get(cache_key)
 
     if cached is None:
         pool = await get_pool()
-        sql, params = build_prospecting_query(fetch_filters)
+        sql_enriched, params_enriched = build_prospecting_query(
+            fetch_filters, enriched_filter=True
+        )
+        sql_other, params_other = build_prospecting_query(
+            fetch_filters, enriched_filter=False
+        )
         async with pool.acquire() as conn:
-            rows = await conn.fetch(sql, *params)
-        cached = _sort_demais_last([dict(r) for r in rows])
+            rows_enriched = await conn.fetch(sql_enriched, *params_enriched)
+            rows_other = await conn.fetch(sql_other, *params_other)
+        cached = {
+            "enriched": _sort_demais_last([dict(r) for r in rows_enriched]),
+            "non_enriched": _sort_demais_last([dict(r) for r in rows_other]),
+        }
         await cache_set(cache_key, cached, ttl=_CACHE_TTL)
 
-    if randomize:
-        # Nova ordem a cada requisição: evita concentrar tráfego de prospecção
-        # nas mesmas empresas (que estariam sempre no topo do índice lexicográfico).
-        shuffled = _shuffle_preserving_demais_last(list(cached), random.Random())
-        return shuffled[: filters.limit]
-
-    return cached
+    rng = random.Random()
+    enriched = _shuffle_preserving_demais_last(list(cached["enriched"]), rng)
+    non_enriched = _shuffle_preserving_demais_last(list(cached["non_enriched"]), rng)
+    # Dedup defensivo: as duas consultas têm EXISTS / NOT EXISTS mutuamente
+    # exclusivos, então em produção não há overlap. Esse seen-set blinda contra
+    # mocks de teste e qualquer regressão silenciosa na SQL.
+    seen: set[tuple[str, str, str]] = set()
+    merged: list[dict] = []
+    for row in enriched + non_enriched:
+        key = (row["cnpj_basico"], row["cnpj_ordem"], row["cnpj_dv"])
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(row)
+    return merged[: filters.limit]
