@@ -30,15 +30,19 @@
   --color-amber-100: #fff4e0;
 
   /* === COLOR SEMANTIC (Layer 2 — componentes usam estes) === */
-  --color-bg-app:        var(--color-gray-50);
-  --color-bg-surface:    #ffffff;
-  --color-bg-subtle:     var(--color-gray-100);
-  --color-bg-inverse:    var(--color-navy-800);
+  --color-bg-app:            var(--color-gray-50);
+  --color-bg-surface:        #ffffff;
+  --color-bg-subtle:         var(--color-gray-100);
+  --color-bg-inverse:        var(--color-navy-800);
+  --color-bg-inverse-hover:  var(--color-navy-700);
+  --color-bg-inverse-active: var(--color-blue-600);
+  --color-border-inverse:    rgba(255, 255, 255, 0.08);
 
-  --color-fg-primary:    var(--color-gray-900);
-  --color-fg-secondary:  var(--color-gray-600);
-  --color-fg-muted:      var(--color-gray-500);
-  --color-fg-on-inverse: #ffffff;
+  --color-fg-primary:        var(--color-gray-900);
+  --color-fg-secondary:      var(--color-gray-600);
+  --color-fg-muted:          var(--color-gray-500);
+  --color-fg-on-inverse:     #ffffff;
+  --color-fg-on-inverse-muted: #b7c2d6;
 
   --color-action:        var(--color-blue-600);
   --color-action-hover:  var(--color-navy-700);

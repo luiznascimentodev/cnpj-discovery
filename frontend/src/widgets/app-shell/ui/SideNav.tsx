@@ -26,10 +26,13 @@ export function SideNav() {
   return (
     <nav
       aria-label="Navegação principal"
-      className="flex w-60 shrink-0 flex-col gap-1 border-r border-[var(--color-border)] bg-[var(--color-bg-surface)] px-3 py-4"
+      className="flex w-60 shrink-0 flex-col gap-1 border-r border-[var(--color-border-inverse)] bg-[var(--color-bg-inverse)] px-3 py-4"
     >
-      <div className="px-2 pb-3 text-[var(--text-xs)] font-semibold uppercase tracking-wide text-[var(--color-fg-muted)]">
-        CNPJ Discovery
+      <div className="flex items-center gap-2 px-2 pb-4 pt-1">
+        <span aria-hidden="true" className="inline-block h-5 w-1 rounded-sm bg-[var(--color-brand)]" />
+        <span className="text-[var(--text-xs)] font-semibold uppercase tracking-wide text-[var(--color-fg-on-inverse)]">
+          CNPJ Discovery
+        </span>
       </div>
       {items.map(({ to, label, icon: Icon }) => (
         <NavLink
@@ -40,8 +43,8 @@ export function SideNav() {
               'flex items-center gap-2 rounded-md px-2 py-1.5 text-[var(--text-sm)] transition-colors',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]',
               isActive
-                ? 'bg-[var(--color-bg-subtle)] text-[var(--color-fg-primary)] font-medium'
-                : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-subtle)] hover:text-[var(--color-fg-primary)]'
+                ? 'bg-[var(--color-bg-inverse-active)] text-[var(--color-fg-on-inverse)] font-medium'
+                : 'text-[var(--color-fg-on-inverse-muted)] hover:bg-[var(--color-bg-inverse-hover)] hover:text-[var(--color-fg-on-inverse)]'
             )
           }
         >
