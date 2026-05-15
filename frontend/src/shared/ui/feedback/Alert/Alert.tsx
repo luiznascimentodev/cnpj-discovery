@@ -24,7 +24,7 @@ const alertVariants = cva(
 const iconMap = { info: Info, success: CircleCheck, warning: TriangleAlert, danger: CircleX }
 
 export interface AlertProps
-  extends HTMLAttributes<HTMLDivElement>,
+  extends Omit<HTMLAttributes<HTMLDivElement>, 'title'>,
     VariantProps<typeof alertVariants> {
   title?: ReactNode
 }

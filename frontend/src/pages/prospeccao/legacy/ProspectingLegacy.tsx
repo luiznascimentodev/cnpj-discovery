@@ -15,10 +15,10 @@ import {
   type EnrichmentJobSummary,
   type Filters,
 } from '@/shared/api'
-import { CompanyDetailModal } from '../components/CompanyDetailModal'
-import { FilterPanel } from '../components/FilterPanel'
-import { ResultsTable } from '../components/ResultsTable'
-import { cnpjFromCompanyPath, companyPath } from '../utils/companyRoutes'
+import { CompanyDetailModal } from './components/CompanyDetailModal'
+import { FilterPanel } from './components/FilterPanel'
+import { ResultsTable } from './components/ResultsTable'
+import { cnpjFromCompanyPath, companyPath } from './utils/companyRoutes'
 
 const DEFAULT_PAGE_SIZE = 100
 
@@ -33,7 +33,7 @@ const getLastCursorEmpresa = (items: EmpresaOut[]): EmpresaOut | undefined =>
     return item.cnpj_completo > last.cnpj_completo ? item : last
   }, undefined)
 
-export function Prospecting() {
+export function ProspectingLegacy() {
   const [currentFilters, setCurrentFilters] = useState<Filters>({ limit: DEFAULT_PAGE_SIZE })
   const [exportFilters, setExportFilters] = useState<Filters>({ limit: DEFAULT_PAGE_SIZE })
   const [allResults, setAllResults] = useState<EmpresaOut[]>([])

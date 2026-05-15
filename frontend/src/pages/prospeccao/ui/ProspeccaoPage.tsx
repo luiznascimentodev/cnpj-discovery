@@ -1,17 +1,10 @@
-import { PageHeader } from '@/shared/ui/layout/PageHeader'
+import { ProspectingLegacy } from '../legacy/ProspectingLegacy'
 
+/**
+ * Wraps the legacy Prospecting screen until it gets rebuilt on top of the new
+ * design system. New shell handles navigation/topbar; the legacy view owns its
+ * own filter panel and results layout.
+ */
 export function ProspeccaoPage() {
-  return (
-    <>
-      <PageHeader
-        title="Prospecção"
-        description="Busque empresas pelos filtros oficiais da Receita Federal"
-      />
-      <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-surface)] p-6">
-        <p className="text-[var(--text-sm)] text-[var(--color-fg-muted)]">
-          Migração do módulo legado em andamento (Fase 14).
-        </p>
-      </div>
-    </>
-  )
+  return <ProspectingLegacy />
 }

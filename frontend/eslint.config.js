@@ -61,4 +61,11 @@ export default defineConfig([
       }],
     },
   },
+  {
+    files: ['src/pages/*/legacy/**/*.{ts,tsx}'],
+    rules: {
+      // Quarantined legacy code: relaxed rules until rewritten on the design system.
+      'no-restricted-imports': 'off',
+    },
+  },
 ])
