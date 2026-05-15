@@ -156,10 +156,10 @@ jobs:
             --exclude='*.env' \
             --exclude='node_modules/' \
             --exclude='frontend/node_modules/' \
-            --exclude='data/' \
-            --exclude='storage/' \
-            --exclude='downloads/' \
-            --exclude='logs/' \
+            --exclude='/data/' \
+            --exclude='/storage/' \
+            --exclude='/downloads/' \
+            --exclude='/logs/' \
             --exclude='__pycache__/' \
             --exclude='.pytest_cache/' \
             --exclude='htmlcov/' \
