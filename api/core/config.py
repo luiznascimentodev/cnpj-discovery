@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str = ""
     stripe_signature_tolerance_seconds: int = 300
 
+    app_base_url: str = "http://localhost:5173"
+    email_from: str = "CNPJ Discovery <noreply@localhost>"
+    resend_api_key: str = ""
+    smtp_host: str = "localhost"
+    smtp_port: int = 1025
+    smtp_username: str = ""
+    smtp_password: str = ""
+
     environment: str = "development"
 
     @property
