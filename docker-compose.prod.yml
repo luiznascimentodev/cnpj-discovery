@@ -27,6 +27,17 @@ services:
     ports: !reset []
     restart: unless-stopped
 
+  # Worker contínuo de phase 1 (DNS + busca em searxng).
+  # VPS tem 4 vCPU / 15 GB RAM — 10 réplicas com concurrency 10 cada cabem
+  # com folga (~1.5 GB) e processam ~100 candidatos em paralelo no total,
+  # sem competir agressivamente com a API.
+  enrichment-worker:
+    restart: unless-stopped
+    environment:
+      DISCOVERY_CONCURRENCY: "10"
+    deploy:
+      replicas: 10
+
   frontend:
     build:
       context: ./frontend

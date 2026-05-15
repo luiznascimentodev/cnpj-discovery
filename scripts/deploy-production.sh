@@ -22,6 +22,7 @@ docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" up -d --build \
   frontend \
   nginx \
   searxng \
+  enrichment-worker \
   enrichment-demand-worker \
   enrichment-trickle-worker \
   domain-crawler-worker \
