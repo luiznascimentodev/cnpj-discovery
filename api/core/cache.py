@@ -42,6 +42,10 @@ async def close_cache() -> None:
         _redis = None
 
 
+def get_redis():
+    return _redis
+
+
 def make_cache_key(prefix: str, params: dict) -> str:
     raw = json.dumps(params, sort_keys=True, default=str)
     digest = hashlib.sha256(raw.encode()).hexdigest()[:16]
