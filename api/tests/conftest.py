@@ -34,7 +34,7 @@ async def client(mock_pool):
         patch("modules.status.router.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.cnaes.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("modules.empresa.router.get_pool", new_callable=AsyncMock, return_value=mock_pool),
-        patch("routers.bairros.get_pool", new_callable=AsyncMock, return_value=mock_pool),
+        patch("modules.bairros.router.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.paid_enrichment.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.billing_webhook.get_pool", new_callable=AsyncMock, return_value=mock_pool),
         patch("routers.prospecting.cache_get", new_callable=AsyncMock, return_value=None),
@@ -43,8 +43,8 @@ async def client(mock_pool):
         patch("routers.cnaes.cache_set", new_callable=AsyncMock),
         patch("modules.empresa.router.cache_get", new_callable=AsyncMock, return_value=None),
         patch("modules.empresa.router.cache_set", new_callable=AsyncMock),
-        patch("routers.bairros.cache_get", new_callable=AsyncMock, return_value=None),
-        patch("routers.bairros.cache_set", new_callable=AsyncMock),
+        patch("modules.bairros.router.cache_get", new_callable=AsyncMock, return_value=None),
+        patch("modules.bairros.router.cache_set", new_callable=AsyncMock),
     ]
 
     with ExitStack() as stack:

@@ -676,7 +676,7 @@ class TestBairrosRouter:
     @pytest.mark.asyncio
     async def test_cache_hit_returns_data(self, client: AsyncClient):
         cached = [{"bairro": "CENTRO", "municipio": None, "municipio_descricao": None}]
-        with patch("routers.bairros.cache_get", AsyncMock(return_value=cached)):
+        with patch("modules.bairros.router.cache_get", AsyncMock(return_value=cached)):
             response = await client.get("/v1/bairros?uf=SP&q=centro&municipio=3550308")
         assert response.status_code == 200
         assert response.json() == cached
@@ -696,9 +696,9 @@ class TestBairrosRouter:
         pool = MagicMock()
         pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-        with patch("routers.bairros.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.bairros.cache_set", AsyncMock()):
-                with patch("routers.bairros.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.bairros.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.bairros.router.cache_set", AsyncMock()):
+                with patch("modules.bairros.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/bairros?uf=SP&q=centro&municipio=3550308")
         data = response.json()
         assert response.status_code == 200
@@ -716,9 +716,9 @@ class TestBairrosRouter:
         pool = MagicMock()
         pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-        with patch("routers.bairros.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.bairros.cache_set", AsyncMock()):
-                with patch("routers.bairros.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.bairros.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.bairros.router.cache_set", AsyncMock()):
+                with patch("modules.bairros.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/bairros?uf=rj&q=flamengo&municipio=3304557")
         assert response.status_code == 200
         call_args = mock_conn.fetch.call_args[0]
@@ -733,7 +733,7 @@ class TestBairrosRouter:
     @pytest.mark.asyncio
     async def test_municipios_cache_hit_returns_data(self, client: AsyncClient):
         cached = [{"codigo": 3550308, "descricao": "SAO PAULO", "total_estabelecimentos": 100}]
-        with patch("routers.bairros.cache_get", AsyncMock(return_value=cached)):
+        with patch("modules.bairros.router.cache_get", AsyncMock(return_value=cached)):
             response = await client.get("/v1/municipios?uf=SP&q=sao")
         assert response.status_code == 200
         assert response.json() == cached
@@ -747,9 +747,9 @@ class TestBairrosRouter:
         pool = MagicMock()
         pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-        with patch("routers.bairros.cache_get", AsyncMock(return_value=None)):
-            with patch("routers.bairros.cache_set", AsyncMock()) as mock_cache_set:
-                with patch("routers.bairros.get_pool", AsyncMock(return_value=pool)):
+        with patch("modules.bairros.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.bairros.router.cache_set", AsyncMock()) as mock_cache_set:
+                with patch("modules.bairros.router.get_pool", AsyncMock(return_value=pool)):
                     response = await client.get("/v1/municipios?uf=sp&q=sao")
         assert response.status_code == 200
         data = response.json()
