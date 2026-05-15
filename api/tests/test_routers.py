@@ -3,7 +3,9 @@ import pytest
 from httpx import AsyncClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from modules.prospecting.router import _sort_demais_last
+import random
+
+from modules.prospecting.router import _shuffle_preserving_demais_last, _sort_demais_last
 
 
 # ─── Dados de apoio ────────────────────────────────────────────────────────────
@@ -88,6 +90,23 @@ class TestProspectingSort:
         result = _sort_demais_last(rows)
 
         assert [row["cnpj_completo"] for row in result] == ["2", "3", "1", "4"]
+
+    def test_shuffle_preserves_demais_at_the_end(self):
+        rows = [
+            {"cnpj_completo": "a", "porte": 1},
+            {"cnpj_completo": "b", "porte": 3},
+            {"cnpj_completo": "c", "porte": 2},
+            {"cnpj_completo": "x", "porte": 5},
+            {"cnpj_completo": "y", "porte": 5},
+        ]
+
+        result = _shuffle_preserving_demais_last(rows, random.Random(42))
+
+        # primeiros 3 devem ser todos os não-demais, últimos 2 todos demais
+        assert {row["cnpj_completo"] for row in result[:3]} == {"a", "b", "c"}
+        assert {row["cnpj_completo"] for row in result[3:]} == {"x", "y"}
+        # com seed fixo a ordem é determinística — protege contra regressão silenciosa
+        assert [row["cnpj_completo"] for row in result] == ["b", "a", "c", "y", "x"]
 
 
 class TestProspectingRouter:
@@ -186,6 +205,16 @@ class TestProspectingRouter:
         # Verifica campos obrigatórios do EmpresaOut
         for field in ("cnpj_basico", "cnpj_ordem", "cnpj_dv", "cnpj_completo", "razao_social"):
             assert field in empresa
+
+    @pytest.mark.asyncio
+    async def test_search_with_direct_cnpj_skips_randomization(self, client: AsyncClient, mock_pool):
+        # Quando o filtro é um CNPJ específico, a randomização da primeira página
+        # deve ser desligada (faz lookup direto, sem inflar o pool).
+        mock_conn = make_mock_conn(fetch_return=[EMPRESA_ROW])
+        setup_pool(mock_pool, mock_conn)
+
+        response = await client.get("/v1/prospecting?cnpj=12345678000190")
+        assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_search_with_cursor_pagination(self, client: AsyncClient, mock_pool):
