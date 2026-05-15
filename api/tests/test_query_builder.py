@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from models.detail import CnaeItem, EmpresaDetail, SimplesOut, SocioOut
+from modules.empresa.detail_schemas import CnaeItem, EmpresaDetail, SimplesOut, SocioOut
 from modules.empresa import EmpresaOut
 from modules.prospecting.schemas import ProspectingFilters
 from modules.prospecting.service import build_enrichment_candidate_query, build_prospecting_query
