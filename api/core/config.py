@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     enrichment_service_url: str = "http://localhost:8010"
     enrichment_api_key: str = "development-enrichment-key"
     paid_contact_feature_key: str = "crawler_contacts"
+    # Quando False (default) o enrichment é liberado pra todo usuário autenticado
+    # — billing/assinatura ainda não foi montado em produção. Religar setando
+    # ENRICHMENT_REQUIRE_SUBSCRIPTION=true no .env quando os planos pagos forem
+    # ativados.
+    enrichment_require_subscription: bool = False
 
     stripe_webhook_secret: str = ""
     stripe_signature_tolerance_seconds: int = 300

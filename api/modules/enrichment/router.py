@@ -55,6 +55,11 @@ def _require_account_id(account_id: str | None) -> str:
 
 
 async def _require_feature(pool, account_id: str, feature_key: str) -> None:
+    # Bypass temporário: enquanto não houver fluxo de billing/assinatura ativo,
+    # liberamos enrichment para todo usuário autenticado. Quando os planos pagos
+    # forem religados, basta `ENRICHMENT_REQUIRE_SUBSCRIPTION=true` no .env.
+    if not settings.enrichment_require_subscription:
+        return
     allowed = await has_entitlement(pool, account_id, feature_key)
     if not allowed:
         raise HTTPException(

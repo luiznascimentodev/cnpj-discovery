@@ -284,7 +284,10 @@ class TestPaidRouter:
 
     @pytest.mark.asyncio
     async def test_paid_enrichment_forbids_missing_entitlement(self, client, mock_pool):
-        with patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=False):
+        with (
+            patch("modules.enrichment.router.settings.enrichment_require_subscription", True),
+            patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=False),
+        ):
             response = await client.get(
                 "/v1/paid/empresa/12345678000190/enrichment",
                 headers={"X-Account-Id": "acct"},
@@ -326,7 +329,10 @@ class TestPaidRouter:
 
     @pytest.mark.asyncio
     async def test_estimate_job_requires_bulk_entitlement(self, client):
-        with patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=False):
+        with (
+            patch("modules.enrichment.router.settings.enrichment_require_subscription", True),
+            patch("modules.enrichment.router.has_entitlement", new_callable=AsyncMock, return_value=False),
+        ):
             response = await client.post(
                 "/v1/paid/enrichment/estimate",
                 headers={"X-Account-Id": "acct"},
