@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/cnpj-discovery}"
 COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.prod.yml)
-PROFILES=(--profile demand-worker --profile domain-crawler)
+PROFILES=(--profile demand-worker --profile domain-crawler --profile trickle-worker --profile worker)
 
 cd "$APP_DIR"
 
@@ -21,7 +21,9 @@ docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" up -d --build \
   enrichment \
   frontend \
   nginx \
+  searxng \
   enrichment-demand-worker \
+  enrichment-trickle-worker \
   domain-crawler-worker \
   domain-resolver-worker
 
