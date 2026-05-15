@@ -13,6 +13,10 @@ router = APIRouter()
 _CACHE_TTL = 300  # 5 minutos — dados do RF mudam mensalmente
 
 
+def _sort_demais_last(rows: list[dict]) -> list[dict]:
+    return sorted(rows, key=lambda row: row.get("porte") == 5)
+
+
 @router.get(
     "/prospecting",
     response_model=list[EmpresaOut],
@@ -31,6 +35,6 @@ async def search_empresas(filters: ProspectingFilters = Depends(prospecting_filt
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql, *params)
 
-    result = [dict(r) for r in rows]
+    result = _sort_demais_last([dict(r) for r in rows])
     await cache_set(cache_key, result, ttl=_CACHE_TTL)
     return result

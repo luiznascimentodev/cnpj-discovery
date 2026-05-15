@@ -11,8 +11,5 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_estab_data_inicio
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_estab_matriz_filial
     ON estabelecimentos (matriz_filial);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_empresas_natureza
-    ON empresas (natureza_juridica);
-
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_simples_opcao
     ON simples (opcao_simples);

@@ -8,10 +8,13 @@ Estratégia de performance:
   - maintenance_work_mem alto reduz sorts em disco
   - max_parallel_maintenance_workers usa múltiplos cores por índice
 """
+import re
 import time
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import psycopg2
+from psycopg2 import errors
 from loguru import logger
 
 from config import settings
@@ -106,11 +109,6 @@ MANAGED_INDEXES: list[tuple[str, str]] = [
         "ON estabelecimentos (matriz_filial)",
     ),
     (
-        "idx_empresas_natureza",
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_empresas_natureza "
-        "ON empresas (natureza_juridica)",
-    ),
-    (
         "idx_simples_opcao",
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_simples_opcao "
         "ON simples (opcao_simples)",
@@ -194,58 +192,81 @@ def drop_managed_indexes(conn: psycopg2.extensions.connection) -> int:
     return dropped
 
 
-def _build_index(name: str, sql: str) -> float:
+def _build_index(name: str, sql: str, max_retries: int = 3) -> float:
     """Cria um único índice em conexão dedicada com autocommit. Retorna tempo em segundos."""
-    start = time.monotonic()
-    conn = psycopg2.connect(settings.dsn)
-    conn.autocommit = True
-    try:
-        with conn.cursor() as cur:
-            cur.execute(_INDEX_SESSION_SETTINGS)
-            logger.info(f"Creating index {name}...")
-            cur.execute(sql)
-        elapsed = time.monotonic() - start
-        logger.success(f"Index {name} created in {elapsed:.0f}s")
-        return elapsed
-    finally:
-        conn.close()
+    for attempt in range(1, max_retries + 1):
+        start = time.monotonic()
+        conn = psycopg2.connect(settings.dsn)
+        conn.autocommit = True
+        try:
+            with conn.cursor() as cur:
+                cur.execute(_INDEX_SESSION_SETTINGS)
+                logger.info(f"Creating index {name} (attempt {attempt}/{max_retries})...")
+                cur.execute(sql)
+            elapsed = time.monotonic() - start
+            logger.success(f"Index {name} created in {elapsed:.0f}s")
+            return elapsed
+        except errors.DeadlockDetected as exc:
+            logger.warning(f"Deadlock detected for index {name} on attempt {attempt}: {exc}")
+            if attempt == max_retries:
+                raise
+            time.sleep(attempt * 5)  # Backoff exponencial simples
+        except Exception:
+            raise
+        finally:
+            conn.close()
+    return 0.0  # Should not reach here
 
 
 def create_managed_indexes(conn: psycopg2.extensions.connection) -> int:
     """
     Recria todos os índices gerenciados após a carga em paralelo.
 
-    Usa CREATE INDEX CONCURRENTLY (não bloqueia leituras) com múltiplas threads
-    para criar vários índices simultaneamente. Cada thread abre sua própria conexão
-    em autocommit puro com maintenance_work_mem alto para builds mais rápidos.
+    Usa CREATE INDEX CONCURRENTLY (não bloqueia leituras) com múltiplas threads.
+    Estratégia: Agrupa índices por tabela e processa cada tabela em sua própria thread.
+    Isso evita deadlocks entre múltiplos CREATE INDEX CONCURRENTLY na mesma tabela,
+    mantendo paralelismo entre tabelas diferentes.
 
-    etl_index_workers controla o paralelismo (default: 4).
+    etl_index_workers controla o número máximo de tabelas processadas simultaneamente.
 
     Returns:
         Número de índices criados com sucesso
     """
-    n_workers = min(settings.etl_index_workers, len(MANAGED_INDEXES))
+    # Agrupa índices por tabela
+    by_table = defaultdict(list)
+    for name, sql in MANAGED_INDEXES:
+        # Extrai nome da tabela do SQL: "ON <tabela> ("
+        match = re.search(r"ON\s+(\w+)", sql, re.IGNORECASE)
+        table = match.group(1) if match else "unknown"
+        by_table[table].append((name, sql))
+
+    n_workers = min(settings.etl_index_workers, len(by_table))
     logger.info(
-        f"Creating {len(MANAGED_INDEXES)} indexes with {n_workers} parallel workers "
-        f"(maintenance_work_mem=512MB, max_parallel_maintenance_workers=2)"
+        f"Creating {len(MANAGED_INDEXES)} indexes across {len(by_table)} tables "
+        f"with {n_workers} parallel workers."
     )
 
     created = 0
     failed: list[str] = []
 
+    def _build_indexes_for_table(table_name: str, indexes: list[tuple[str, str]]) -> int:
+        table_created = 0
+        for name, sql in indexes:
+            try:
+                _build_index(name, sql)
+                table_created += 1
+            except Exception as exc:
+                logger.error(f"Failed to create index {name} on table {table_name}: {exc}")
+                failed.append(name)
+        return table_created
+
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
         futures = {
-            executor.submit(_build_index, name, sql): name
-            for name, sql in MANAGED_INDEXES
+            executor.submit(_build_indexes_for_table, table, idxs): table
+            for table, idxs in by_table.items()
         }
         for future in as_completed(futures):
-            name = futures[future]
-            try:
-                future.result()
-                created += 1
-            except Exception as exc:
-                logger.error(f"Failed to create index {name}: {exc}")
-                failed.append(name)
+            created += future.result()
 
     if failed:
         logger.warning(f"Failed indexes: {', '.join(failed)}")

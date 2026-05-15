@@ -25,7 +25,7 @@ env/
 # Data
 *.zip
 *.csv
-data/
+/data/
 /tmp/
 downloads/
 
@@ -68,3 +68,5 @@ storage/
 dmypy.json
 .ruff_cache/
 .pdm.toml
+
+.superpowers/

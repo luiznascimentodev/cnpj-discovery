@@ -39,28 +39,68 @@ _FROM_SQL = """
 
 _SIMPLES_JOIN = "LEFT JOIN simples s ON s.cnpj_basico = e.cnpj_basico"
 
-_EST_ONLY_CANDIDATE_SQL = """
+_EST_ONLY_ORDERED_CANDIDATE_SQL = """
 WITH candidate_est AS MATERIALIZED (
-    SELECT
-        est.cnpj_basico,
-        est.cnpj_ordem,
-        est.cnpj_dv,
-        est.nome_fantasia,
-        est.situacao_cadastral,
-        est.cnae_principal,
-        est.uf,
-        est.municipio,
-        est.bairro,
-        est.email,
-        est.ddd1,
-        est.telefone1,
-        est.data_inicio
-    FROM estabelecimentos est
-    {where}
-    ORDER BY est.cnpj_basico, est.cnpj_ordem
+    (
+        SELECT
+            est.cnpj_basico,
+            est.cnpj_ordem,
+            est.cnpj_dv,
+            est.nome_fantasia,
+            est.situacao_cadastral,
+            est.cnae_principal,
+            est.uf,
+            est.municipio,
+            est.bairro,
+            est.email,
+            est.ddd1,
+            est.telefone1,
+            est.data_inicio,
+            0 AS porte_sort
+        FROM estabelecimentos est
+        JOIN empresas e_sort ON e_sort.cnpj_basico = est.cnpj_basico
+        {non_demais_where}
+        ORDER BY est.cnpj_basico, est.cnpj_ordem
+        LIMIT {limit}
+    )
+    UNION ALL
+    (
+        SELECT
+            est.cnpj_basico,
+            est.cnpj_ordem,
+            est.cnpj_dv,
+            est.nome_fantasia,
+            est.situacao_cadastral,
+            est.cnae_principal,
+            est.uf,
+            est.municipio,
+            est.bairro,
+            est.email,
+            est.ddd1,
+            est.telefone1,
+            est.data_inicio,
+            1 AS porte_sort
+        FROM estabelecimentos est
+        JOIN empresas e_sort ON e_sort.cnpj_basico = est.cnpj_basico
+        {demais_where}
+        ORDER BY est.cnpj_basico, est.cnpj_ordem
+        LIMIT {limit}
+    )
+    ORDER BY porte_sort, cnpj_basico, cnpj_ordem
     LIMIT {limit}
 )
 """
+
+
+def _where(conditions: list[str]) -> str:
+    return "WHERE " + " AND ".join(conditions) if conditions else ""
+
+
+def _cursor_sort_expr(param_index: int) -> str:
+    return (
+        f"COALESCE((SELECT CASE WHEN e_cursor.porte = 5 THEN 1 ELSE 0 END "
+        f"FROM empresas e_cursor WHERE e_cursor.cnpj_basico = ${param_index}), 0)"
+    )
 
 
 def build_prospecting_query(f: ProspectingFilters, *, include_limit: bool = True) -> tuple[str, list]:
@@ -143,36 +183,47 @@ def build_prospecting_query(f: ProspectingFilters, *, include_limit: bool = True
         params.append(f.data_inicio_max)
         p += 1
 
-    if f.natureza_juridica is not None:
-        company_conditions.append(f"e.natureza_juridica = ${p}")
-        params.append(f.natureza_juridica)
-        p += 1
-
     if f.opcao_simples is not None:
         needs_simples = True
         simples_conditions.append(f"s.opcao_simples = ${p}")
         params.append("S" if f.opcao_simples else "N")
         p += 1
 
-    if include_limit and f.cursor_cnpj_basico and f.cursor_cnpj_ordem:
-        est_conditions.append(f"(est.cnpj_basico, est.cnpj_ordem) > (${p}, ${p + 1})")
-        params.extend([f.cursor_cnpj_basico, f.cursor_cnpj_ordem])
-        p += 2
-
     if include_limit and not company_conditions and not simples_conditions:
-        where = ("WHERE " + " AND ".join(est_conditions)) if est_conditions else ""
+        non_demais_conditions = [*est_conditions, "e_sort.porte IS DISTINCT FROM 5"]
+        demais_conditions = [*est_conditions, "e_sort.porte = 5"]
+
+        if f.cursor_cnpj_basico and f.cursor_cnpj_ordem:
+            cursor_sort = _cursor_sort_expr(p)
+            non_demais_conditions.append(f"{cursor_sort} = 0")
+            non_demais_conditions.append(f"(est.cnpj_basico, est.cnpj_ordem) > (${p}, ${p + 1})")
+            demais_conditions.append(
+                f"({cursor_sort} = 0 OR (est.cnpj_basico, est.cnpj_ordem) > (${p}, ${p + 1}))"
+            )
+            params.extend([f.cursor_cnpj_basico, f.cursor_cnpj_ordem])
+            p += 2
+
         sql = (
-            _EST_ONLY_CANDIDATE_SQL.format(where=where, limit=f.limit)
+            _EST_ONLY_ORDERED_CANDIDATE_SQL.format(
+                non_demais_where=_where(non_demais_conditions),
+                demais_where=_where(demais_conditions),
+                limit=f.limit,
+            )
             + f"{_SELECT_SQL}"
             + """
     FROM candidate_est est
     JOIN empresas e ON e.cnpj_basico = est.cnpj_basico
     LEFT JOIN cnaes c ON c.codigo = est.cnae_principal
     LEFT JOIN municipios m ON m.codigo = est.municipio
-    ORDER BY est.cnpj_basico, est.cnpj_ordem
+    ORDER BY est.porte_sort, est.cnpj_basico, est.cnpj_ordem
 """
         )
         return sql, params
+
+    if include_limit and f.cursor_cnpj_basico and f.cursor_cnpj_ordem:
+        est_conditions.append(f"(est.cnpj_basico, est.cnpj_ordem) > (${p}, ${p + 1})")
+        params.extend([f.cursor_cnpj_basico, f.cursor_cnpj_ordem])
+        p += 2
 
     simples_join = f"\n    {_SIMPLES_JOIN}" if needs_simples else ""
     conditions = est_conditions + company_conditions + simples_conditions
