@@ -40,4 +40,8 @@ export {
   SearchX,
   // Skip / accessibility
   ArrowDown,
+  // Landing / marketing
+  Filter,
+  KanbanSquare,
+  RefreshCw,
 } from 'lucide-react'
