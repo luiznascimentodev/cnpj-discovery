@@ -1,5 +1,5 @@
 import pytest
-from services.cnae_segments import build_cnae_catalog, classify_cnae, group_cnaes
+from modules.cnaes.service import build_cnae_catalog, classify_cnae, group_cnaes
 
 
 class TestClassifyCnae:

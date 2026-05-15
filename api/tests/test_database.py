@@ -1,5 +1,5 @@
 """Testes para database.py — foca na lógica testável sem conexão real."""
-from database import InstrumentedConnection, query_count
+from core.db import InstrumentedConnection, query_count
 
 
 class TestInstrumentedConnectionInc:

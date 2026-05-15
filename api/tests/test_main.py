@@ -3,7 +3,7 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from unittest.mock import AsyncMock, patch
 
-from config import Settings
+from core.config import Settings
 from main import create_app
 
 
@@ -43,7 +43,7 @@ class TestSettings:
 class TestDatabase:
     @pytest.mark.asyncio
     async def test_get_pool_raises_when_not_initialized(self):
-        import database
+        from core import db as database
         original = database._pool
         database._pool = None
         with pytest.raises(RuntimeError, match="not initialized"):
@@ -52,7 +52,7 @@ class TestDatabase:
 
     @pytest.mark.asyncio
     async def test_close_pool_noop_when_none(self):
-        import database
+        from core import db as database
         original = database._pool
         database._pool = None
         await database.close_pool()  # não deve levantar erro
@@ -61,8 +61,8 @@ class TestDatabase:
 
     @pytest.mark.asyncio
     async def test_create_and_close_pool(self):
-        import database
-        with patch("database.asyncpg.create_pool", new_callable=AsyncMock) as mock_create:
+        from core import db as database
+        with patch("core.db.asyncpg.create_pool", new_callable=AsyncMock) as mock_create:
             mock_pool = AsyncMock()
             mock_create.return_value = mock_pool
             pool = await database.create_pool()
@@ -74,7 +74,7 @@ class TestDatabase:
 
     @pytest.mark.asyncio
     async def test_get_pool_returns_pool_when_initialized(self):
-        import database
+        from core import db as database
         mock_pool = AsyncMock()
         original = database._pool
         database._pool = mock_pool

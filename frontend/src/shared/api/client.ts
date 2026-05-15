@@ -3,6 +3,25 @@ import { ApiError } from './ApiError'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/v1',
+  withCredentials: true,
+})
+
+const getCookie = (name: string): string | null => {
+  const cookies = document.cookie ? document.cookie.split('; ') : []
+  const match = cookies.find((cookie) => cookie.startsWith(`${name}=`))
+  return match ? decodeURIComponent(match.split('=').slice(1).join('=')) : null
+}
+
+api.interceptors.request.use((config) => {
+  const method = config.method?.toUpperCase()
+  if (method && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const csrf = getCookie('cnpj_csrf')
+    if (csrf) {
+      config.headers.set?.('X-CSRF-Token', csrf)
+      config.headers['X-CSRF-Token'] = csrf
+    }
+  }
+  return config
 })
 
 api.interceptors.response.use(
@@ -228,6 +247,29 @@ export interface StatusResponse {
   }>
 }
 
+export interface SessionUser {
+  id: string
+  email: string
+  name: string
+  email_verified_at: string | null
+}
+
+export interface LoginPayload {
+  email: string
+  password: string
+}
+
+export interface RegisterPayload {
+  name: string
+  email: string
+  password: string
+}
+
+export interface MessageResponse {
+  ok: boolean
+  message: string
+}
+
 const buildParams = (filters: Filters): URLSearchParams => {
   const params = new URLSearchParams()
 
@@ -276,6 +318,33 @@ export const getCnaes = (): Promise<CnaeCatalog> =>
 
 export const getStatus = (): Promise<StatusResponse> =>
   api.get<StatusResponse>('/status').then(r => r.data)
+
+export const getCsrf = (): Promise<{ csrf: string }> =>
+  api.get<{ csrf: string }>('/auth/csrf').then(r => r.data)
+
+export const getSession = (): Promise<SessionUser> =>
+  api.get<SessionUser>('/auth/me').then(r => r.data)
+
+export const login = (payload: LoginPayload): Promise<SessionUser> =>
+  api.post<SessionUser>('/auth/login', payload).then(r => r.data)
+
+export const register = (payload: RegisterPayload): Promise<MessageResponse> =>
+  api.post<MessageResponse>('/auth/register', payload).then(r => r.data)
+
+export const logout = (): Promise<MessageResponse> =>
+  api.post<MessageResponse>('/auth/logout').then(r => r.data)
+
+export const verifyEmail = (token: string): Promise<MessageResponse> =>
+  api.post<MessageResponse>('/auth/verify-email', { token }).then(r => r.data)
+
+export const resendVerification = (email: string): Promise<MessageResponse> =>
+  api.post<MessageResponse>('/auth/resend-verification', { email }).then(r => r.data)
+
+export const forgotPassword = (email: string): Promise<MessageResponse> =>
+  api.post<MessageResponse>('/auth/forgot-password', { email }).then(r => r.data)
+
+export const resetPassword = (token: string, newPassword: string): Promise<MessageResponse> =>
+  api.post<MessageResponse>('/auth/reset-password', { token, new_password: newPassword }).then(r => r.data)
 
 export const estimateEnrichment = (payload: EnrichmentEstimateRequest): Promise<EnrichmentEstimateResponse> =>
   api.post<EnrichmentEstimateResponse>('/paid/enrichment/estimate', payload, { headers: paidHeaders() }).then(r => r.data)

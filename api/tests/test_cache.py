@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import cache as cache_module
-from cache import cache_get, cache_set, close_cache, create_cache, make_cache_key
+import core.cache as cache_module
+from core.cache import cache_get, cache_set, close_cache, create_cache, make_cache_key
 
 
 class TestMakeCacheKey:
@@ -139,7 +139,7 @@ class TestCreateCache:
         mock_redis = AsyncMock()
         mock_redis.ping = AsyncMock(return_value=True)
 
-        with patch("cache.aioredis.from_url", return_value=mock_redis):
+        with patch("core.cache.aioredis.from_url", return_value=mock_redis):
             await create_cache()
 
         assert cache_module._redis is mock_redis
@@ -150,7 +150,7 @@ class TestCreateCache:
         mock_redis = AsyncMock()
         mock_redis.ping.side_effect = Exception("connection refused")
 
-        with patch("cache.aioredis.from_url", return_value=mock_redis):
+        with patch("core.cache.aioredis.from_url", return_value=mock_redis):
             await create_cache()
 
         assert cache_module._redis is None
