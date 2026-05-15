@@ -11,7 +11,9 @@ Uma máquina de prospecção B2B completa que ingere, processa e expõe ~50 milh
 - É 100% containerizado com Docker Compose para paridade perfeita entre desenvolvimento local e produção (VPS)
 - Inclui testes automatizados com cobertura de 100%
 
-**Nota:** Este repositório contém apenas o backend. O frontend será um projeto separado que consome esta API.
+**Frontend SPA**: o frontend mora em [`frontend/`](frontend/README.md) — React 19 +
+TypeScript em arquitetura Feature-Sliced Design (FSD v2), com design system próprio
+(tokens W3C → primitives Radix/shadcn-style → componentes de domínio). Consome esta API.
 
 ## Arquitetura
 

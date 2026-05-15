@@ -1,73 +1,73 @@
-# React + TypeScript + Vite
+# CNPJ Discovery — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+SPA React 19 + TypeScript + Vite, organizada em **Feature-Sliced Design v2** com um
+design system próprio (tokens W3C → shadcn-style primitives → componentes de domínio).
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **React 19 + Vite 7** com HMR
+- **Tailwind v4** (`@theme` directive, sem `tailwind.config.ts`)
+- **Radix UI** primitives + `class-variance-authority` (cva) — padrão shadcn/ui
+- **TanStack Query** (estado de servidor) e **TanStack Table v8** + `@tanstack/react-virtual`
+- **React Router v7** em modo data router (`createBrowserRouter`)
+- **React Hook Form + Zod**
+- **Sonner** (toasts), **cmdk** (command palette), **Framer Motion** (animação)
+- **lucide-react** via barrel curado em `@/shared/ui/icons` (ESLint impede imports diretos)
+- **Vitest + RTL + vitest-axe** (unitário/a11y) e **Playwright** (e2e smoke)
 
-## React Compiler
+## Arquitetura: Feature-Sliced Design (FSD)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Camadas (ordem de dependência — uma só pode importar das de baixo):
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+app       → bootstrap, providers, router, estilos globais
+pages     → composição por rota; pode usar widgets/features/entities/shared
+widgets   → blocos visuais auto-contidos (ex.: AppShell)
+features  → fluxos com lógica (ex.: prospeccao/filter, pipeline/move-card)
+entities  → modelos de domínio (User, Empresa, Pipeline)
+shared    → UI sem domínio (primitives/data/feedback/layout, hooks, api, lib)
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+`eslint-plugin-boundaries` impede violações (ex.: `shared` importar de `entities`).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Detalhes completos em [docs/architecture.md](docs/architecture.md).
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Design system
+
+- **Tokens**: 3 camadas (`primitive → semantic → component`) em `src/app/styles/tokens.css`,
+  expostos como CSS variables consumíveis por Tailwind `bg-[var(--color-action)]`.
+- **Identidade visual** moderna gov.br-adjacent: navy `#0c326f`, action blue `#1351b4`,
+  amarelo brand `#FFCD07`, tipografia Inter, densidade compacta (base 14px).
+- **A11y AA**: contraste verificado, focus-ring tokenizado, `prefers-reduced-motion`.
+- **Componentes**: 24 primitives + data layer (DataTable virtualizado, Stat, Skeleton…) +
+  feedback (Toaster, Alert, Banner, ConfirmDialog) + layout (Container, Stack, Inline, PageHeader).
+
+## Scripts
+
+```sh
+npm run dev              # vite dev server (porta 5173)
+npm run build            # tsc -b && vite build
+npm run lint
+npm run test             # vitest run
+npm run test:coverage    # com thresholds (80/80/80/75)
+npm run e2e              # playwright (chromium)
+npm run check:bundle     # gate de bundle gzip (default 350 kB)
 ```
+
+## CI
+
+`.github/workflows/frontend.yml` roda lint → test (coverage) → build → bundle budget
+em todo PR que toca `frontend/**`. Threshold inicial: 350 kB gzip total.
+
+## Segurança
+
+- `nginx.conf` aplica CSP estrita (no `unsafe-eval`, no inline scripts), HSTS,
+  X-Frame-Options DENY, Referrer-Policy, Permissions-Policy.
+- Regras de negócio **somente no backend**; frontend exibe.
+- `dangerouslySetInnerHTML` bloqueado por `no-restricted-syntax`.
+
+## Legacy
+
+O módulo de prospecção pré-FSD vive isolado em `src/pages/prospeccao/legacy/`
+(`ProspeccaoPage` é um wrapper fino sobre ele). Será reescrito em cima do
+design system em sub-projetos futuros.
