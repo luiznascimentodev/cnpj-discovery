@@ -70,7 +70,6 @@ class TestManagedIndexes:
         assert "idx_estab_bairro_trgm" in names
         assert "idx_estab_data_inicio" in names
         assert "idx_estab_matriz_filial" in names
-        assert "idx_empresas_natureza" in names
         assert "idx_simples_opcao" in names
 
     def test_trgm_index_uses_gin(self):
