@@ -6,8 +6,8 @@ from pydantic import ValidationError
 
 from models.detail import CnaeItem, EmpresaDetail, SimplesOut, SocioOut
 from modules.empresa import EmpresaOut
-from models.filters import ProspectingFilters
-from services.query_builder import build_enrichment_candidate_query, build_prospecting_query
+from modules.prospecting.schemas import ProspectingFilters
+from modules.prospecting.service import build_enrichment_candidate_query, build_prospecting_query
 
 
 # ---------------------------------------------------------------------------

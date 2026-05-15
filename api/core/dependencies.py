@@ -3,7 +3,7 @@ from typing import Annotated, Optional
 
 from fastapi import HTTPException, Query
 
-from models.filters import ProspectingFilters
+from modules.prospecting.schemas import ProspectingFilters
 
 
 def _parse_int_list(*groups: Optional[list[str]]) -> Optional[list[int]]:

@@ -23,10 +23,10 @@ from core.middleware.concurrency_monitor import ThunderingHerdMiddleware
 from core.middleware.memory_monitor import SlowRequestMiddleware, rss_monitor_loop
 from core.middleware.query_monitor import N1DetectorMiddleware
 from modules import bairros, cnaes, empresa, export, status
+from modules.prospecting.router import router as prospecting_router
 from routers import (
     billing_webhook,
     paid_enrichment,
-    prospecting,
 )
 
 
@@ -98,7 +98,7 @@ def create_app() -> FastAPI:
     async def health():
         return {"status": "ok", "version": "1.0.0"}
 
-    app.include_router(prospecting.router, prefix="/v1")
+    app.include_router(prospecting_router, prefix="/v1")
     app.include_router(bairros.router, prefix="/v1")
     app.include_router(cnaes.router, prefix="/v1")
     app.include_router(empresa.router, prefix="/v1")

@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from models.filters import ProspectingFilters, normalize_cnpj
+from modules.prospecting.schemas import ProspectingFilters, normalize_cnpj
 
 
 JobSourceType = Literal["selection", "filter"]

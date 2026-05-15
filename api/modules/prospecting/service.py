@@ -1,4 +1,4 @@
-from models.filters import ProspectingFilters
+from modules.prospecting.schemas import ProspectingFilters
 
 _BAIRRO_CANONICAL_EXPR = """trim(regexp_replace(
         regexp_replace(

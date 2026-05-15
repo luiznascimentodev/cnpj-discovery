@@ -16,7 +16,7 @@ from models.enrichment_jobs import (
     EnrichmentJobResponse,
     EnrichmentJobSummary,
 )
-from services.query_builder import build_enrichment_candidate_query
+from modules.prospecting.service import build_enrichment_candidate_query
 
 
 MAX_FREE_ESTIMATE_SECONDS_PER_ITEM = 8

@@ -8,8 +8,8 @@ from loguru import logger
 
 from core.db import get_pool
 from core.dependencies import export_filters_dependency
-from models.filters import ProspectingFilters
-from services.query_builder import build_prospecting_query
+from modules.prospecting.schemas import ProspectingFilters
+from modules.prospecting.service import build_prospecting_query
 
 router = APIRouter()
 

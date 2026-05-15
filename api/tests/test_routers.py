@@ -3,7 +3,7 @@ import pytest
 from httpx import AsyncClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from routers.prospecting import _sort_demais_last
+from modules.prospecting.router import _sort_demais_last
 
 
 # ─── Dados de apoio ────────────────────────────────────────────────────────────
@@ -220,9 +220,9 @@ class TestProspectingRouter:
              patch("main.close_pool", new_callable=AsyncMock), \
              patch("main.create_cache", new_callable=AsyncMock), \
              patch("main.close_cache", new_callable=AsyncMock), \
-             patch("routers.prospecting.cache_get", new_callable=AsyncMock, return_value=cached_data), \
-             patch("routers.prospecting.cache_set", new_callable=AsyncMock), \
-             patch("routers.prospecting.get_pool", new_callable=AsyncMock, return_value=mock_pool):
+             patch("modules.prospecting.router.cache_get", new_callable=AsyncMock, return_value=cached_data), \
+             patch("modules.prospecting.router.cache_set", new_callable=AsyncMock), \
+             patch("modules.prospecting.router.get_pool", new_callable=AsyncMock, return_value=mock_pool):
 
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.get("/v1/prospecting")
