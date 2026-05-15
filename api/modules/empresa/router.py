@@ -72,6 +72,14 @@ _SQL_CRAWLER_CONTACTS = """
     ORDER BY confidence DESC, contact_type, value
 """
 
+_SQL_ENRICHMENT_ATTEMPTED = """
+    SELECT EXISTS (
+        SELECT 1 FROM paid_enrichment.enrichment_targets
+        WHERE cnpj_basico = $1 AND cnpj_ordem = $2 AND cnpj_dv = $3
+          AND status = 'done'
+    )
+"""
+
 _SPLIT_RE = re.compile(r"[\s,]+")
 
 
@@ -133,8 +141,15 @@ async def get_empresa(cnpj: str):
         data["enrichment_required_feature"] = (
             settings.paid_contact_feature_key if has_paid else None
         )
+        if has_paid:
+            enrichment_status = "done"
+        else:
+            attempted = await conn.fetchval(
+                _SQL_ENRICHMENT_ATTEMPTED, basico, ordem, dv
+            )
+            enrichment_status = "no_public_data" if attempted else "not_enriched"
         data["crawler_enrichment"] = {
-            "status": "done" if has_paid else "not_enriched",
+            "status": enrichment_status,
             "domains": crawler_domains,
             "contacts": crawler_contacts,
         }

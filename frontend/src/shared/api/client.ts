@@ -120,8 +120,10 @@ export interface CrawlerContactOut {
   last_seen: string | null
 }
 
+export type CrawlerEnrichmentStatus = 'not_enriched' | 'no_public_data' | 'done'
+
 export interface CrawlerEnrichmentOut {
-  status: string
+  status: CrawlerEnrichmentStatus
   domains: CrawlerDomainOut[]
   contacts: CrawlerContactOut[]
 }

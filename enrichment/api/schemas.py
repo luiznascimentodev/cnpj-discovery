@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 _CNPJ_STRIP_RE = re.compile(r"[.\-/\s]")
 
 ContactType = Literal["email", "phone", "whatsapp", "website", "social"]
-EnrichmentStatus = Literal["not_enriched", "done"]
+EnrichmentStatus = Literal["not_enriched", "no_public_data", "done"]
 
 
 def normalize_cnpj(value: str) -> str:

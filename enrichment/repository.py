@@ -44,6 +44,14 @@ _SQL_FETCH_CONTACTS = """
     ORDER BY confidence DESC, contact_type, value
 """
 
+_SQL_ENRICHMENT_ATTEMPTED = """
+    SELECT EXISTS (
+        SELECT 1 FROM paid_enrichment.enrichment_targets
+        WHERE cnpj_basico = $1 AND cnpj_ordem = $2 AND cnpj_dv = $3
+          AND status = 'done'
+    )
+"""
+
 _SQL_FETCH_EVIDENCE = """
     SELECT id, source, source_url, source_domain, extractor, evidence_excerpt, observed_at
     FROM paid_enrichment.enrichment_evidence
@@ -92,10 +100,20 @@ async def fetch_enrichment_detail(pool, cnpj: str) -> EnrichmentDetailResponse:
     async with pool.acquire() as conn:
         domain_rows = await conn.fetch(_SQL_FETCH_DOMAINS, cnpj_basico, cnpj_ordem, cnpj_dv)
         contact_rows = await conn.fetch(_SQL_FETCH_CONTACTS, cnpj_basico, cnpj_ordem, cnpj_dv)
+        attempted = await conn.fetchval(
+            _SQL_ENRICHMENT_ATTEMPTED, cnpj_basico, cnpj_ordem, cnpj_dv
+        )
 
     domains = [EnrichmentDomain(**row) for row in _rows_to_dicts(domain_rows)]
     contacts = [EnrichmentContact(**row) for row in _rows_to_dicts(contact_rows)]
-    status = "done" if domains or contacts else "not_enriched"
+    if domains or contacts:
+        status = "done"
+    elif attempted:
+        # Worker rodou e não encontrou nada publicável (ou tudo abaixo do
+        # threshold de confiança). Diferente de "nunca rodou".
+        status = "no_public_data"
+    else:
+        status = "not_enriched"
     return EnrichmentDetailResponse(
         cnpj=normalized,
         status=status,

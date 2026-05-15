@@ -317,7 +317,17 @@ export function CompanyDetailModal({ cnpj, onClose, onRequestEnrichment }: Props
                 <div className="space-y-4">
                   {!crawler || (crawler.domains.length === 0 && crawler.contacts.length === 0) ? (
                     <Section title="Status">
-                      <p className="text-gray-500">Nenhum dado enriquecido publicado para este CNPJ.</p>
+                      {crawler?.status === 'no_public_data' ? (
+                        <p className="text-gray-700">
+                          Enriquecimento concluído — <strong>nenhum site ou contato público</strong> foi encontrado para
+                          este CNPJ. A empresa não tem e-mail na Receita Federal nem presença web confirmável.
+                        </p>
+                      ) : (
+                        <p className="text-gray-500">
+                          Enriquecimento ainda não foi solicitado para este CNPJ. Clique em <em>Atualizar</em> para
+                          iniciar.
+                        </p>
+                      )}
                     </Section>
                   ) : (
                     <>

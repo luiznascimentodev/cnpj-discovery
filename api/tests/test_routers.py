@@ -530,7 +530,13 @@ DETAIL_ROW = {
 }
 
 
-def make_empresa_pool(fetchrow_side, fetch_side, crawler_domains=None, crawler_contacts=None):
+def make_empresa_pool(
+    fetchrow_side,
+    fetch_side,
+    crawler_domains=None,
+    crawler_contacts=None,
+    enrichment_attempted=False,
+):
     mock_conn = AsyncMock()
     mock_conn.fetchrow = AsyncMock(side_effect=fetchrow_side)
     mock_conn.fetch = AsyncMock(
@@ -540,6 +546,9 @@ def make_empresa_pool(fetchrow_side, fetch_side, crawler_domains=None, crawler_c
             crawler_contacts or [],
         ]
     )
+    # fetchval só é chamado quando NÃO há domains/contacts (para checar se o
+    # worker já rodou). Default False => "nunca rodou".
+    mock_conn.fetchval = AsyncMock(return_value=enrichment_attempted)
     mock_pool = MagicMock()
     mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
     mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -618,6 +627,23 @@ class TestEmpresaRouter:
         assert body["enrichment_available"] is False
         assert body["enrichment_required_feature"] is None
         assert body["crawler_enrichment"] == {"status": "not_enriched", "domains": [], "contacts": []}
+
+    @pytest.mark.asyncio
+    async def test_enrichment_no_public_data_when_worker_ran_but_found_nothing(
+        self, client: AsyncClient
+    ):
+        # Worker rodou (enrichment_targets.status='done') mas nenhum domain/contact
+        # foi publicado. Status deve ser "no_public_data" — diferente de "nunca rodou".
+        pool = make_empresa_pool([DETAIL_ROW, None], [[]], enrichment_attempted=True)
+        with patch("modules.empresa.router.cache_get", AsyncMock(return_value=None)):
+            with patch("modules.empresa.router.cache_set", AsyncMock()):
+                with patch("modules.empresa.router.get_pool", AsyncMock(return_value=pool)):
+                    response = await client.get("/v1/empresa/12345678000190")
+        body = response.json()
+        assert body["enrichment_available"] is False
+        assert body["crawler_enrichment"]["status"] == "no_public_data"
+        assert body["crawler_enrichment"]["domains"] == []
+        assert body["crawler_enrichment"]["contacts"] == []
 
     @pytest.mark.asyncio
     async def test_enrichment_data_is_included_in_separate_block(self, client: AsyncClient):

@@ -46,11 +46,13 @@ class FakeTransaction:
 
 
 class FakeConnection:
-    def __init__(self, fetch_results=None, fetchrow_results=None):
+    def __init__(self, fetch_results=None, fetchrow_results=None, fetchval_results=None):
         self.fetch_results = list(fetch_results or [])
         self._fetchrow_results = list(fetchrow_results or [])
+        self._fetchval_results = list(fetchval_results or [])
         self.fetch_calls = []
         self.fetchrow_calls = []
+        self.fetchval_calls = []
         self.execute_calls = []
 
     async def fetch(self, query, *args):
@@ -60,6 +62,10 @@ class FakeConnection:
     async def fetchrow(self, query, *args):
         self.fetchrow_calls.append((query, args))
         return self._fetchrow_results.pop(0) if self._fetchrow_results else None
+
+    async def fetchval(self, query, *args):
+        self.fetchval_calls.append((query, args))
+        return self._fetchval_results.pop(0) if self._fetchval_results else False
 
     async def execute(self, query, *args):
         self.execute_calls.append((query, args))
@@ -122,11 +128,25 @@ class TestRepository:
 
     @pytest.mark.asyncio
     async def test_fetch_enrichment_detail_marks_empty_result_not_enriched(self):
-        conn = FakeConnection(fetch_results=[[], []])
+        # Sem domains/contacts e sem target enfileirado pra esse CNPJ:
+        # status "not_enriched" (nunca rodou).
+        conn = FakeConnection(fetch_results=[[], []], fetchval_results=[False])
 
         detail = await fetch_enrichment_detail(FakePool(conn), "12345678000190")
 
         assert detail.status == "not_enriched"
+        assert detail.contacts == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_enrichment_detail_marks_empty_after_run_no_public_data(self):
+        # Worker rodou (target.status='done') mas não publicou nenhum contato:
+        # status "no_public_data" — diferencia de "nunca tentou".
+        conn = FakeConnection(fetch_results=[[], []], fetchval_results=[True])
+
+        detail = await fetch_enrichment_detail(FakePool(conn), "12345678000190")
+
+        assert detail.status == "no_public_data"
+        assert detail.domains == []
         assert detail.contacts == []
 
     @pytest.mark.asyncio

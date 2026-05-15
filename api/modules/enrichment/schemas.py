@@ -29,7 +29,7 @@ class EnrichmentContact(BaseModel):
 
 class PaidEnrichmentDetail(BaseModel):
     cnpj: str
-    status: Literal["not_enriched", "done"]
+    status: Literal["not_enriched", "no_public_data", "done"]
     domains: list[EnrichmentDomain] = Field(default_factory=list)
     contacts: list[EnrichmentContact] = Field(default_factory=list)
 
