@@ -86,6 +86,35 @@ _SQL_LIST_JOBS = """
     LIMIT $2
 """
 
+_SQL_LIST_ACTIVE_JOBS = """
+    SELECT id, status, source_type, requested_count, accepted_count,
+           cache_hit_count, skipped_count, failed_count, ready_count,
+           cost_credits, created_at, started_at, completed_at, cancelled_at
+    FROM app_private.enrichment_jobs
+    WHERE account_id = $1
+      AND status IN ('queued', 'running')
+    ORDER BY created_at DESC, id DESC
+    LIMIT $2
+"""
+
+# Marca como completed um job recém-criado em que NENHUM item ficou pendente
+# (todos cache_hit ou skipped_inactive). Caso contrário o job ficaria 'queued'
+# pra sempre esperando o worker — e o worker só processa items 'pending'.
+_SQL_FINALIZE_JOB_IF_NO_PENDING = """
+    UPDATE app_private.enrichment_jobs job
+    SET status = 'completed',
+        completed_at = COALESCE(job.completed_at, now()),
+        updated_at = now()
+    WHERE job.id = $1
+      AND job.status = 'queued'
+      AND NOT EXISTS (
+          SELECT 1 FROM app_private.enrichment_job_items item
+          WHERE item.job_id = job.id
+            AND item.status IN ('pending', 'leased', 'failed_retryable')
+      )
+    RETURNING status, completed_at
+"""
+
 _SQL_GET_JOB = """
     SELECT id, status, source_type, requested_count, accepted_count,
            cache_hit_count, skipped_count, failed_count, ready_count,
@@ -287,10 +316,15 @@ async def create_enrichment_job(
                     "cache" if is_cache_hit else None,
                     payload.stale_after_days,
                 )
+
+        # Se todos os itens já são cache_hit/skipped, não há nada pro worker
+        # fazer — finaliza o job aqui mesmo pra não ficar 'queued' pra sempre.
+        finalize_row = await conn.fetchrow(_SQL_FINALIZE_JOB_IF_NO_PENDING, job_id)
+    final_status = finalize_row["status"] if finalize_row else job_row["status"]
     return EnrichmentJobResponse(
         **estimate.model_dump(),
         job_id=job_id,
-        status=job_row["status"],
+        status=final_status,
         created_at=job_row["created_at"],
         idempotency_key=job_row["idempotency_key"],
     )
@@ -300,10 +334,17 @@ def _job_summary(row) -> EnrichmentJobSummary:
     return EnrichmentJobSummary(**dict(row))
 
 
-async def list_enrichment_jobs(pool, *, account_id: str, limit: int = 20) -> EnrichmentJobListResponse:
+async def list_enrichment_jobs(
+    pool,
+    *,
+    account_id: str,
+    limit: int = 20,
+    include_finished: bool = False,
+) -> EnrichmentJobListResponse:
     bounded_limit = max(1, min(limit, 100))
+    query = _SQL_LIST_JOBS if include_finished else _SQL_LIST_ACTIVE_JOBS
     async with pool.acquire() as conn:
-        rows = await conn.fetch(_SQL_LIST_JOBS, account_id, bounded_limit)
+        rows = await conn.fetch(query, account_id, bounded_limit)
     return EnrichmentJobListResponse(jobs=[_job_summary(row) for row in rows])
 
 

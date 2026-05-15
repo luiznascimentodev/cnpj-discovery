@@ -149,11 +149,17 @@ async def create_paid_enrichment_job(
 async def list_paid_enrichment_jobs(
     x_account_id: Annotated[str | None, Header(alias="X-Account-Id")] = None,
     limit: int = 20,
+    include_finished: bool = False,
 ) -> EnrichmentJobListResponse:
     account_id = _require_account_id(x_account_id)
     pool = await get_pool()
     await _require_feature(pool, account_id, "bulk_enrichment")
-    return await list_enrichment_jobs(pool, account_id=account_id, limit=limit)
+    return await list_enrichment_jobs(
+        pool,
+        account_id=account_id,
+        limit=limit,
+        include_finished=include_finished,
+    )
 
 
 @router.get(

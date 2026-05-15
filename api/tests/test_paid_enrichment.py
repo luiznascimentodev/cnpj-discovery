@@ -125,6 +125,10 @@ class FakeJobConn:
         self.fetchrow_calls.append((query, args))
         if "INSERT INTO app_private.enrichment_jobs" in query:
             return self.job_row
+        if "UPDATE app_private.enrichment_jobs job" in query and "NOT EXISTS" in query:
+            # _SQL_FINALIZE_JOB_IF_NO_PENDING — só retorna linha se o caso de teste
+            # quis simular "todos os itens em cache" via finalize_row.
+            return getattr(self, "finalize_row", None)
         if "WHERE account_id = $1 AND id = $2" in query:
             return self.rows[0] if self.rows else None
         return self.job_row
@@ -502,6 +506,44 @@ class TestEnrichmentJobsService:
         item_statuses = [args[5] for query, args in conn.executed if "enrichment_job_items" in query]
         assert job.job_id == 77
         assert item_statuses == ["cache_hit", "pending"]
+        # Sempre tenta finalizar — o SQL é seguro (no-op se houver pending).
+        finalize_calls = [q for q, _ in conn.fetchrow_calls if "NOT EXISTS" in q]
+        assert len(finalize_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_create_job_finalizes_when_all_cache_hit(self):
+        # Quando todos os candidatos são cache_hit, o job vai direto pra completed
+        # — sem isso, o frontend mostraria "processando" pra sempre.
+        conn = FakeJobConn(
+            rows=[{"cnpj_basico": "12345678", "cnpj_ordem": "0001", "cnpj_dv": "90"}],
+            cache_rows=[{"cnpj": "12345678000190"}],
+        )
+        conn.finalize_row = {"status": "completed", "completed_at": "2026-05-15T00:00:00Z"}
+        payload = EnrichmentJobCreateRequest(cnpjs=["12345678000190"])
+        job = await create_enrichment_job(
+            FakePool(conn),
+            account_id="acct",
+            created_by="user",
+            payload=payload,
+            idempotency_key="idem",
+        )
+        assert job.status == "completed"
+
+    @pytest.mark.asyncio
+    async def test_list_jobs_active_only_by_default(self):
+        # Sem include_finished, deve usar a query que filtra status IN (queued, running).
+        conn = FakeJobConn(rows=[])
+        from modules.enrichment.jobs import list_enrichment_jobs
+
+        await list_enrichment_jobs(FakePool(conn), account_id="acct")
+        queries = [q for q, _ in conn.fetch_calls]
+        assert any("status IN ('queued', 'running')" in q for q in queries)
+
+        # Com include_finished=True, usa a query irrestrita.
+        conn2 = FakeJobConn(rows=[])
+        await list_enrichment_jobs(FakePool(conn2), account_id="acct", include_finished=True)
+        queries2 = [q for q, _ in conn2.fetch_calls]
+        assert not any("status IN ('queued', 'running')" in q for q in queries2)
 
     @pytest.mark.asyncio
     async def test_list_get_items_cancel_and_export(self):
