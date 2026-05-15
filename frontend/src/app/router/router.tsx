@@ -6,6 +6,7 @@ import { RegistroPage } from '@/pages/registro'
 import { RecuperarSenhaPage } from '@/pages/recuperar-senha'
 import { VerificarEmailPage } from '@/pages/verificar-email'
 import { RedefinirSenhaPage } from '@/pages/redefinir-senha'
+import { PrivacidadePage, TermosPage } from '@/pages/legal'
 import { AppHomePage } from '@/pages/app-home'
 import { ProspeccaoPage } from '@/pages/prospeccao'
 import { PipelinePage } from '@/pages/pipeline'
@@ -23,6 +24,8 @@ export const router = createBrowserRouter([
   { path: '/recuperar-senha', element: <RecuperarSenhaPage />, errorElement: <RouteErrorBoundary /> },
   { path: '/verificar-email', element: <VerificarEmailPage />, errorElement: <RouteErrorBoundary /> },
   { path: '/redefinir-senha', element: <RedefinirSenhaPage />, errorElement: <RouteErrorBoundary /> },
+  { path: '/termos', element: <TermosPage />, errorElement: <RouteErrorBoundary /> },
+  { path: '/privacidade', element: <PrivacidadePage />, errorElement: <RouteErrorBoundary /> },
   {
     path: '/app',
     element: <ProtectedRoute />,
