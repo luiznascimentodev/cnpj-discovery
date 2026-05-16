@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from core.cache import get_redis
 from core.csrf import csrf_dependency
 from core.middleware.auth import get_current_user
+from core.rate_limit import RateLimiter
 from modules.auth.schemas import UserRecord
 from modules.pipeline.cards.csv_import import ImportResult, import_cards
 from modules.pipeline.cards.repository import CardRepository
@@ -27,10 +29,25 @@ from modules.pipeline.cards.service import (
     update_card,
 )
 from modules.pipeline.dependencies import get_card_repo, owned_card, owned_pipeline
-from modules.pipeline.pipelines.router import _limit
 from modules.pipeline.pipelines.schemas import PipelineRecord
 
 router = APIRouter(tags=["pipeline_cards"])
+
+
+async def _limit(request: Request, key: str, *, window: int, max_count: int) -> None:
+    redis = get_redis()
+    result = await RateLimiter(
+        redis,
+        bucket_key=f"rate:{key}",
+        window=window,
+        max_count=max_count,
+    ).try_acquire()
+    if not result.ok:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas tentativas. Tente novamente mais tarde.",
+            headers={"Retry-After": str(result.retry_after)},
+        )
 
 
 @router.get("/pipelines/cards/by-cnpj/{cnpj_basico}", response_model=list[CardInPipelineSummary])

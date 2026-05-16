@@ -262,6 +262,43 @@ async def test_import_cards_endpoint_propagates_rate_limit():
 
 
 @pytest.mark.asyncio
+async def test_limit_helper_passes_when_bucket_allows():
+    limiter = AsyncMock()
+    limiter.try_acquire.return_value = SimpleNamespace(ok=True, retry_after=0)
+
+    with patch("modules.pipeline.cards.router.RateLimiter", return_value=limiter), \
+         patch("modules.pipeline.cards.router.get_redis", return_value=object()):
+        result = await cards_router_module._limit(
+            FakeRequest(),
+            "cards:test",
+            window=3600,
+            max_count=1,
+        )
+
+    limiter.try_acquire.assert_awaited_once()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_limit_helper_raises_429_when_bucket_exhausted():
+    limiter = AsyncMock()
+    limiter.try_acquire.return_value = SimpleNamespace(ok=False, retry_after=30)
+
+    with patch("modules.pipeline.cards.router.RateLimiter", return_value=limiter), \
+         patch("modules.pipeline.cards.router.get_redis", return_value=object()):
+        with pytest.raises(HTTPException) as exc_info:
+            await cards_router_module._limit(
+                FakeRequest(),
+                "cards:test",
+                window=3600,
+                max_count=1,
+            )
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.headers["Retry-After"] == "30"
+
+
+@pytest.mark.asyncio
 async def test_owned_card_returns_card_when_found():
     from modules.pipeline.dependencies import owned_card
 
