@@ -13,6 +13,7 @@ from modules.pipeline.errors import ErrorCode, pipeline_error
 from modules.pipeline.pipelines.repository import PipelineRepository
 from modules.pipeline.pipelines.schemas import PipelineRecord
 from modules.pipeline.stages.repository import StageRepository
+from modules.pipeline.stages.schemas import StageRecord
 
 
 async def get_pipeline_repo() -> PipelineRepository:
@@ -36,3 +37,14 @@ async def owned_pipeline(
     if pipeline is None:
         raise pipeline_error(ErrorCode.PIPELINE_NOT_FOUND)
     return pipeline
+
+
+async def owned_stage(
+    stage_id: UUID,
+    pipeline: PipelineRecord = Depends(owned_pipeline),
+    repo: StageRepository = Depends(get_stage_repo),
+) -> StageRecord:
+    stage = await repo.get_in_pipeline(stage_id, pipeline_id=pipeline.id)
+    if stage is None:
+        raise pipeline_error(ErrorCode.STAGE_NOT_FOUND)
+    return stage
