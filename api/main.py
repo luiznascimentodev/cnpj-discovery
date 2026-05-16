@@ -26,6 +26,7 @@ from modules import bairros, cnaes, empresa, export, status
 from modules.auth.router import router as auth_router
 from modules.billing.router import router as billing_router
 from modules.enrichment.router import router as enrichment_router
+from modules.pipeline import router as pipeline_router
 from modules.prospecting.router import router as prospecting_router
 
 
@@ -72,6 +73,11 @@ def create_app() -> FastAPI:
             {"name": "billing", "description": "Stripe webhook receiver"},
             {"name": "auth", "description": "Autenticação e sessão de usuários"},
             {"name": "status", "description": "Status do ETL e estatísticas"},
+            {"name": "pipelines", "description": "Pipelines de vendas (boards Kanban)"},
+            {"name": "pipeline_stages", "description": "Estágios (colunas) de pipelines"},
+            {"name": "pipeline_cards", "description": "Cards (empresas) em pipelines"},
+            {"name": "pipeline_activities", "description": "Atividades (timeline) de cards"},
+            {"name": "pipeline_tasks", "description": "Tasks (to-do) de cards"},
         ],
         lifespan=lifespan,
     )
@@ -107,6 +113,7 @@ def create_app() -> FastAPI:
     app.include_router(billing_router, prefix="/v1")
     app.include_router(export.router, prefix="/v1")
     app.include_router(status.router, prefix="/v1")
+    app.include_router(pipeline_router, prefix="/v1")
 
     return app
 

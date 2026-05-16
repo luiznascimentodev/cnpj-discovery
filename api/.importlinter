@@ -16,3 +16,12 @@ forbidden_modules =
     routers
     services
     models
+
+; TODO: re-enable após Task 6+ adicionar service.py/repository.py em cada subpasta do pipeline
+; [importlinter:contract:pipeline-internal-layers]
+; name = Pipeline submodules must follow router → service → repository
+; type = layers
+; layers =
+;     modules.pipeline.pipelines.router | modules.pipeline.stages.router | modules.pipeline.cards.router | modules.pipeline.activities.router | modules.pipeline.tasks.router
+;     modules.pipeline.pipelines.service | modules.pipeline.stages.service | modules.pipeline.cards.service | modules.pipeline.activities.service | modules.pipeline.tasks.service
+;     modules.pipeline.pipelines.repository | modules.pipeline.stages.repository | modules.pipeline.cards.repository | modules.pipeline.activities.repository | modules.pipeline.tasks.repository
