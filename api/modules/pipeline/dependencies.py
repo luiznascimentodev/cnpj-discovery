@@ -9,6 +9,7 @@ from core.db import get_pool
 from core.middleware.auth import get_current_user
 from modules.auth.schemas import UserRecord
 from modules.pipeline.cards.repository import CardRepository
+from modules.pipeline.cards.schemas import CardRecord
 from modules.pipeline.errors import ErrorCode, pipeline_error
 from modules.pipeline.pipelines.repository import PipelineRepository
 from modules.pipeline.pipelines.schemas import PipelineRecord
@@ -48,3 +49,14 @@ async def owned_stage(
     if stage is None:
         raise pipeline_error(ErrorCode.STAGE_NOT_FOUND)
     return stage
+
+
+async def owned_card(
+    card_id: UUID,
+    pipeline: PipelineRecord = Depends(owned_pipeline),
+    repo: CardRepository = Depends(get_card_repo),
+) -> CardRecord:
+    card = await repo.get_in_pipeline(card_id, pipeline_id=pipeline.id)
+    if card is None:
+        raise pipeline_error(ErrorCode.CARD_NOT_FOUND)
+    return card

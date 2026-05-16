@@ -28,6 +28,9 @@ class CardRepository:
         )
         return {row["cnpj_basico"] for row in rows}
 
+    async def existing_cnpjs_in_basico(self, cnpjs: list[str]) -> set[str]:
+        return await self.existing_cnpjs(cnpjs)
+
     async def card_exists_in_pipeline(
         self,
         pipeline_id: UUID,
@@ -80,16 +83,21 @@ class CardRepository:
 
     async def bulk_insert(self, rows: list[dict]) -> list[CardRecord]:
         results: list[CardRecord] = []
-        for row in rows:
-            record = await self.insert(
-                pipeline_id=row["pipeline_id"],
-                stage_id=row["stage_id"],
-                cnpj_basico=row["cnpj_basico"],
-                position=row["position"],
-                estimated_value_cents=row.get("estimated_value_cents"),
-                notes=row.get("notes"),
-            )
-            results.append(record)
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                for row in rows:
+                    inserted = await conn.fetchrow(
+                        "INSERT INTO pipeline_cards"
+                        " (pipeline_id, stage_id, cnpj_basico, position, estimated_value_cents, notes)"
+                        " VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+                        row["pipeline_id"],
+                        row["stage_id"],
+                        row["cnpj_basico"],
+                        row["position"],
+                        row.get("estimated_value_cents"),
+                        row.get("notes"),
+                    )
+                    results.append(CardRecord(**dict(inserted)))
         return results
 
     async def list_with_company_summary(
@@ -187,6 +195,21 @@ class CardRepository:
             stage_id,
         )
 
+    async def first_stage_id_in_pipeline(self, pipeline_id: UUID) -> UUID | None:
+        return await self._fetchval(
+            "SELECT id FROM pipeline_stages WHERE pipeline_id = $1 ORDER BY position LIMIT 1",
+            pipeline_id,
+        )
+
+    async def stage_exists_in_pipeline(self, stage_id: UUID, *, pipeline_id: UUID) -> bool:
+        return await self._fetchval(
+            "SELECT EXISTS ("
+            " SELECT 1 FROM pipeline_stages WHERE id = $1 AND pipeline_id = $2"
+            ")",
+            stage_id,
+            pipeline_id,
+        )
+
     async def pipelines_containing_cnpj(
         self,
         owner_user_id: UUID,
@@ -219,7 +242,7 @@ class CardRepository:
         self,
         card_id: UUID,
         *,
-        from_stage_id: UUID,
+        from_stage_id: UUID | None,
         to_stage_id: UUID,
         changed_by_user_id: UUID,
     ) -> None:

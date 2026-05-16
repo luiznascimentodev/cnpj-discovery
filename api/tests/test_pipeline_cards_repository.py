@@ -117,6 +117,17 @@ async def test_existing_cnpjs_returns_set():
 
 
 @pytest.mark.asyncio
+async def test_existing_cnpjs_in_basico_delegates_to_existing_cnpjs():
+    pool, conn = _mock_pool()
+    conn.fetch.return_value = [{"cnpj_basico": "12345678"}]
+    repo = CardRepository(pool)
+
+    result = await repo.existing_cnpjs_in_basico(["12345678"])
+
+    assert result == {"12345678"}
+
+
+@pytest.mark.asyncio
 async def test_card_exists_in_pipeline_returns_bool():
     pool, conn = _mock_pool()
     pipeline_id = uuid4()
@@ -364,6 +375,38 @@ async def test_max_position_in_stage_returns_none_when_empty():
     result = await repo.max_position_in_stage(uuid4())
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_first_stage_id_in_pipeline_returns_stage_id():
+    pool, conn = _mock_pool()
+    pipeline_id = uuid4()
+    stage_id = uuid4()
+    conn.fetchval.return_value = stage_id
+    repo = CardRepository(pool)
+
+    result = await repo.first_stage_id_in_pipeline(pipeline_id)
+
+    assert result == stage_id
+    sql = conn.fetchval.call_args[0][0]
+    assert "pipeline_stages" in sql
+    assert "ORDER BY position LIMIT 1" in sql
+
+
+@pytest.mark.asyncio
+async def test_stage_exists_in_pipeline_returns_bool():
+    pool, conn = _mock_pool()
+    stage_id = uuid4()
+    pipeline_id = uuid4()
+    conn.fetchval.return_value = True
+    repo = CardRepository(pool)
+
+    result = await repo.stage_exists_in_pipeline(stage_id, pipeline_id=pipeline_id)
+
+    assert result is True
+    sql = conn.fetchval.call_args[0][0]
+    assert "pipeline_stages" in sql
+    assert "id = $1 AND pipeline_id = $2" in sql
 
 
 @pytest.mark.asyncio
