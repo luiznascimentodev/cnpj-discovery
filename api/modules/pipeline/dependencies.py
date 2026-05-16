@@ -8,6 +8,8 @@ from fastapi import Depends
 from core.db import get_pool
 from core.middleware.auth import get_current_user
 from modules.auth.schemas import UserRecord
+from modules.pipeline.activities.repository import ActivityRepository
+from modules.pipeline.activities.schemas import ActivityRecord
 from modules.pipeline.cards.repository import CardRepository
 from modules.pipeline.cards.schemas import CardRecord
 from modules.pipeline.errors import ErrorCode, pipeline_error
@@ -15,6 +17,8 @@ from modules.pipeline.pipelines.repository import PipelineRepository
 from modules.pipeline.pipelines.schemas import PipelineRecord
 from modules.pipeline.stages.repository import StageRepository
 from modules.pipeline.stages.schemas import StageRecord
+from modules.pipeline.tasks.repository import TaskRepository
+from modules.pipeline.tasks.schemas import TaskRecord
 
 
 async def get_pipeline_repo() -> PipelineRepository:
@@ -27,6 +31,14 @@ async def get_stage_repo() -> StageRepository:
 
 async def get_card_repo() -> CardRepository:
     return CardRepository(await get_pool())
+
+
+async def get_task_repo() -> TaskRepository:
+    return TaskRepository(await get_pool())
+
+
+async def get_activity_repo() -> ActivityRepository:
+    return ActivityRepository(await get_pool())
 
 
 async def owned_pipeline(
@@ -60,3 +72,25 @@ async def owned_card(
     if card is None:
         raise pipeline_error(ErrorCode.CARD_NOT_FOUND)
     return card
+
+
+async def owned_task(
+    task_id: UUID,
+    card: CardRecord = Depends(owned_card),
+    repo: TaskRepository = Depends(get_task_repo),
+) -> TaskRecord:
+    task = await repo.get_in_card(task_id, card_id=card.id)
+    if task is None:
+        raise pipeline_error(ErrorCode.TASK_NOT_FOUND)
+    return task
+
+
+async def owned_activity(
+    activity_id: UUID,
+    card: CardRecord = Depends(owned_card),
+    repo: ActivityRepository = Depends(get_activity_repo),
+) -> ActivityRecord:
+    activity = await repo.get_in_card(activity_id, card_id=card.id)
+    if activity is None:
+        raise pipeline_error(ErrorCode.ACTIVITY_NOT_FOUND)
+    return activity
