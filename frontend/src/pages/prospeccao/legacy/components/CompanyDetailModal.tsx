@@ -1,13 +1,12 @@
 import { useEffect, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ExternalLink, RefreshCw, X } from 'lucide-react'
+import { ExternalLink, X } from 'lucide-react'
 import { getEmpresa, type CrawlerContactOut, type CrawlerDomainOut } from '@/shared/api'
 import { companyPath } from '../utils/companyRoutes'
 
 interface Props {
   cnpj: string | null
   onClose: () => void
-  onRequestEnrichment?: (cnpj: string) => void
 }
 
 const SITUACAO_LABELS: Record<number, string> = {
@@ -119,7 +118,7 @@ const ContactCard = ({ contact }: { contact: CrawlerContactOut }) => (
   </li>
 )
 
-export function CompanyDetailModal({ cnpj, onClose, onRequestEnrichment }: Props) {
+export function CompanyDetailModal({ cnpj, onClose }: Props) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -303,16 +302,6 @@ export function CompanyDetailModal({ cnpj, onClose, onRequestEnrichment }: Props
               <div>
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <h3 className="text-sm font-semibold text-gray-900">Crawler / Enriquecimento</h3>
-                  {onRequestEnrichment && (
-                    <button
-                      type="button"
-                      onClick={() => onRequestEnrichment(data.cnpj_completo)}
-                      className="inline-flex items-center gap-2 rounded-md border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      Atualizar
-                    </button>
-                  )}
                 </div>
                 <div className="space-y-4">
                   {!crawler || (crawler.domains.length === 0 && crawler.contacts.length === 0) ? (
@@ -324,8 +313,8 @@ export function CompanyDetailModal({ cnpj, onClose, onRequestEnrichment }: Props
                         </p>
                       ) : (
                         <p className="text-gray-500">
-                          Enriquecimento ainda não foi solicitado para este CNPJ. Clique em <em>Atualizar</em> para
-                          iniciar.
+                          Enriquecimento ainda não foi processado para este CNPJ. Nosso pipeline automático irá
+                          processá-lo em breve — volte mais tarde.
                         </p>
                       )}
                     </Section>

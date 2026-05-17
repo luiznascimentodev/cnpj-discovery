@@ -36,7 +36,6 @@ describe('ResultsTable', () => {
       selectedCnpjs: new Set<string>(),
       onToggleEmpresa: vi.fn(),
       onTogglePage: vi.fn(),
-      enrichmentStatuses: {},
     }
 
     render(<ResultsTable {...props} />)
@@ -59,7 +58,6 @@ describe('ResultsTable', () => {
         selectedCnpjs={new Set()}
         onToggleEmpresa={onToggleEmpresa}
         onTogglePage={vi.fn()}
-        enrichmentStatuses={{ '12345678000190': 'pending' }}
       />
     )
 
@@ -67,7 +65,6 @@ describe('ResultsTable', () => {
 
     expect(onToggleEmpresa).toHaveBeenCalledWith('12345678000190')
     expect(onSelectEmpresa).not.toHaveBeenCalled()
-    expect(screen.getByText('Processando')).toBeInTheDocument()
   })
 
   it('supports page selection and load more', () => {
@@ -85,7 +82,6 @@ describe('ResultsTable', () => {
         selectedCnpjs={new Set(['12345678000190'])}
         onToggleEmpresa={vi.fn()}
         onTogglePage={onTogglePage}
-        enrichmentStatuses={{ '12345678000190': 'enriched' }}
       />
     )
 
@@ -94,6 +90,5 @@ describe('ResultsTable', () => {
 
     expect(onTogglePage).toHaveBeenCalledWith(['12345678000190'], false)
     expect(onLoadMore).toHaveBeenCalledOnce()
-    expect(screen.getByText('Pronto')).toBeInTheDocument()
   })
 })

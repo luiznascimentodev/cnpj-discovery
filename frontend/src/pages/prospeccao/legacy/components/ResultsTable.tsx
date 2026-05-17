@@ -11,7 +11,6 @@ interface Props {
   selectedCnpjs: Set<string>
   onToggleEmpresa: (cnpj: string) => void
   onTogglePage: (cnpjs: string[], selected: boolean) => void
-  enrichmentStatuses: Record<string, string>
 }
 
 const porteLabels: Record<number, string> = {
@@ -56,25 +55,6 @@ const getPageItems = (currentPage: number, totalPages: number) => {
   })
 }
 
-const statusLabels: Record<string, string> = {
-  pending: 'Processando',
-  leased: 'Processando',
-  cache_hit: 'Pronto',
-  enriched: 'Pronto',
-  no_public_contact: 'Sem contato',
-  failed_retryable: 'Falhou',
-  failed_terminal: 'Falhou',
-  cancelled: 'Cancelado',
-}
-
-const statusClass = (status: string) => {
-  if (status === 'cache_hit' || status === 'enriched') return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-  if (status === 'pending' || status === 'leased') return 'bg-amber-50 text-amber-700 ring-amber-200'
-  if (status === 'no_public_contact') return 'bg-gray-50 text-gray-600 ring-gray-200'
-  if (status.startsWith('failed')) return 'bg-red-50 text-red-700 ring-red-200'
-  return 'bg-gray-50 text-gray-600 ring-gray-200'
-}
-
 export function ResultsTable({
   data,
   onLoadMore,
@@ -84,7 +64,6 @@ export function ResultsTable({
   selectedCnpjs,
   onToggleEmpresa,
   onTogglePage,
-  enrichmentStatuses,
 }: Props) {
   const [currentPage, setCurrentPage] = useState(1)
 
@@ -135,7 +114,6 @@ export function ResultsTable({
               <th className="w-28 px-4 py-3 text-left font-semibold text-gray-700">Abertura</th>
               <th className="w-36 px-4 py-3 text-left font-semibold text-gray-700">Telefone</th>
               <th className="w-56 px-4 py-3 text-left font-semibold text-gray-700">E-mail</th>
-              <th className="w-36 px-4 py-3 text-left font-semibold text-gray-700">Enrichment</th>
               <th className="w-24 px-4 py-3 text-left font-semibold text-gray-700">Porte</th>
               <th className="w-40 px-4 py-3 text-right font-semibold text-gray-700">Capital Social</th>
             </tr>
@@ -184,11 +162,6 @@ export function ResultsTable({
                 <td className="px-4 py-3 text-gray-700">{formatPhone(row.telefone1)}</td>
                 <td className="truncate px-4 py-3 text-gray-700" title={row.email ?? undefined}>
                   {row.email || '-'}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex rounded px-2 py-1 text-xs font-medium ring-1 ${statusClass(enrichmentStatuses[row.cnpj_completo] ?? 'none')}`}>
-                    {statusLabels[enrichmentStatuses[row.cnpj_completo] ?? ''] ?? 'Não solicitado'}
-                  </span>
                 </td>
                 <td className="px-4 py-3 text-gray-700">{formatPorte(row.porte)}</td>
                 <td className="px-4 py-3 text-right text-gray-700">{formatCurrency(row.capital_social)}</td>
