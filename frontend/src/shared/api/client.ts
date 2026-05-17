@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { ApiError } from './ApiError'
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/v1',
   withCredentials: true,
 })

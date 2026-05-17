@@ -42,6 +42,7 @@ async def create_card(
         stage_id=stage_id,
         cnpj_basico=payload.cnpj_basico,
         position=0 if max_position is None else max_position + 1,
+        display_name=payload.display_name,
         estimated_value_cents=payload.estimated_value_cents,
         notes=payload.notes,
     )
@@ -66,6 +67,7 @@ async def update_card(
 ) -> CardRecord:
     return await repo.update(
         card.id,
+        display_name=payload.display_name,
         estimated_value_cents=payload.estimated_value_cents,
         notes=payload.notes,
     )

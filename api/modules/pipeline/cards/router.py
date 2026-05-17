@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 
 from core.cache import get_redis
 from core.csrf import csrf_dependency
@@ -19,6 +19,7 @@ from modules.pipeline.cards.schemas import (
     CardPatch,
     CardRecord,
     CardWithCompany,
+    ImportRowRecord,
 )
 from modules.pipeline.cards.service import (
     cards_by_cnpj,
@@ -96,6 +97,17 @@ async def get_card_endpoint(
     return card
 
 
+@router.get(
+    "/pipelines/{pipeline_id}/cards/{card_id}/import-metadata",
+    response_model=list[ImportRowRecord],
+)
+async def get_card_import_metadata_endpoint(
+    card: CardRecord = Depends(owned_card),
+    repo: CardRepository = Depends(get_card_repo),
+) -> list[ImportRowRecord]:
+    return await repo.list_import_rows_for_card(card.id)
+
+
 @router.patch(
     "/pipelines/{pipeline_id}/cards/{card_id}",
     response_model=CardRecord,
@@ -142,18 +154,28 @@ async def delete_card_endpoint(
     dependencies=[Depends(csrf_dependency)],
 )
 async def import_cards_endpoint(
-    content: str,
-    stage_id: UUID,
     request: Request,
+    stage_id: UUID = Form(...),
+    file: UploadFile = File(...),
     user: UserRecord = Depends(get_current_user),
     pipeline: PipelineRecord = Depends(owned_pipeline),
     repo: CardRepository = Depends(get_card_repo),
 ) -> ImportResult:
     await _limit(request, f"pipeline_cards:import:{user.id}", window=3600, max_count=10)
+    raw_content = await file.read()
+    try:
+        content = raw_content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Arquivo CSV deve estar em UTF-8.",
+        ) from exc
     return await import_cards(
         repo,
         pipeline_id=pipeline.id,
         stage_id=stage_id,
         current_user_id=user.id,
+        filename=file.filename or "import.csv",
+        file_size_bytes=len(raw_content),
         content=content,
     )

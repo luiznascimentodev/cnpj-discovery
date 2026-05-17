@@ -12,6 +12,8 @@ from modules.pipeline.cards.schemas import (
     CardInPipelineSummary,
     CardRecord,
     CardWithCompany,
+    ImportBatchRecord,
+    ImportRowRecord,
 )
 
 
@@ -66,6 +68,44 @@ def _card_row(**overrides):
         "notes": None,
         "created_at": now,
         "updated_at": now,
+    }
+    base.update(overrides)
+    return base
+
+
+def _import_batch_row(**overrides):
+    now = datetime.now(timezone.utc)
+    base = {
+        "id": uuid4(),
+        "pipeline_id": uuid4(),
+        "owner_user_id": uuid4(),
+        "stage_id": uuid4(),
+        "filename": "cards.csv",
+        "file_size_bytes": 100,
+        "content_sha256": "a" * 64,
+        "total_rows": 1,
+        "created_count": 1,
+        "skipped_count": 0,
+        "created_at": now,
+    }
+    base.update(overrides)
+    return base
+
+
+def _import_row(**overrides):
+    now = datetime.now(timezone.utc)
+    base = {
+        "id": 1,
+        "batch_id": uuid4(),
+        "line_number": 2,
+        "raw_cnpj": "12.345.678/0001-00",
+        "cnpj_basico": "12345678",
+        "display_name": "Lead",
+        "card_id": uuid4(),
+        "status": "created",
+        "reason": None,
+        "metadata": {"segmento": "SaaS"},
+        "created_at": now,
     }
     base.update(overrides)
     return base
@@ -162,6 +202,24 @@ async def test_existing_cards_in_pipeline_by_cnpj_returns_set():
 
 
 @pytest.mark.asyncio
+async def test_existing_card_ids_in_pipeline_by_cnpj_returns_mapping():
+    pool, conn = _mock_pool()
+    pipeline_id = uuid4()
+    card_id = uuid4()
+    conn.fetch.return_value = [{"cnpj_basico": "12345678", "id": card_id}]
+    repo = CardRepository(pool)
+
+    result = await repo.existing_card_ids_in_pipeline_by_cnpj(
+        pipeline_id, ["12345678", "99999999"]
+    )
+
+    assert result == {"12345678": card_id}
+    sql = conn.fetch.call_args[0][0]
+    assert "SELECT cnpj_basico, id" in sql
+    assert "pipeline_cards" in sql
+
+
+@pytest.mark.asyncio
 async def test_insert_returns_card_record():
     pool, conn = _mock_pool()
     pipeline_id = uuid4()
@@ -176,6 +234,7 @@ async def test_insert_returns_card_record():
         stage_id=stage_id,
         cnpj_basico="12345678",
         position=0,
+        display_name="Lead A",
         estimated_value_cents=None,
         notes=None,
     )
@@ -185,6 +244,7 @@ async def test_insert_returns_card_record():
 
     sql = conn.fetchrow.call_args[0][0]
     assert "INSERT INTO pipeline_cards" in sql
+    assert "display_name" in sql
     assert "RETURNING" in sql
 
 
@@ -204,6 +264,7 @@ async def test_bulk_insert_returns_ordered_list():
             "stage_id": stage_id,
             "cnpj_basico": "11111111",
             "position": 0,
+            "display_name": "Lead 1",
             "estimated_value_cents": None,
             "notes": None,
         },
@@ -212,6 +273,7 @@ async def test_bulk_insert_returns_ordered_list():
             "stage_id": stage_id,
             "cnpj_basico": "22222222",
             "position": 1,
+            "display_name": "Lead 2",
             "estimated_value_cents": None,
             "notes": None,
         },
@@ -305,7 +367,12 @@ async def test_update_uses_coalesce_and_returning():
     conn.fetchrow.return_value = _card_row(id=card_id, estimated_value_cents=5000)
     repo = CardRepository(pool)
 
-    result = await repo.update(card_id, estimated_value_cents=5000, notes="test")
+    result = await repo.update(
+        card_id,
+        display_name="Lead",
+        estimated_value_cents=5000,
+        notes="test",
+    )
 
     assert isinstance(result, CardRecord)
     sql = conn.fetchrow.call_args[0][0]
@@ -466,3 +533,117 @@ async def test_insert_stage_change_executes_insert():
     assert from_stage_id in args
     assert to_stage_id in args
     assert user_id in args
+
+
+@pytest.mark.asyncio
+async def test_delete_import_batch_for_file_executes_delete():
+    pool, conn = _mock_pool()
+    repo = CardRepository(pool)
+    owner_user_id = uuid4()
+    pipeline_id = uuid4()
+
+    await repo.delete_import_batch_for_file(
+        owner_user_id=owner_user_id,
+        pipeline_id=pipeline_id,
+        filename="cards.csv",
+        file_size_bytes=100,
+    )
+
+    sql = conn.execute.call_args[0][0]
+    assert "DELETE FROM pipeline_card_import_batches" in sql
+    assert conn.execute.call_args[0][1:] == (owner_user_id, pipeline_id, "cards.csv", 100)
+
+
+@pytest.mark.asyncio
+async def test_insert_import_batch_returns_record():
+    pool, conn = _mock_pool()
+    owner_user_id = uuid4()
+    pipeline_id = uuid4()
+    stage_id = uuid4()
+    conn.fetchrow.return_value = _import_batch_row(
+        owner_user_id=owner_user_id,
+        pipeline_id=pipeline_id,
+        stage_id=stage_id,
+    )
+    repo = CardRepository(pool)
+
+    result = await repo.insert_import_batch(
+        owner_user_id=owner_user_id,
+        pipeline_id=pipeline_id,
+        stage_id=stage_id,
+        filename="cards.csv",
+        file_size_bytes=100,
+        content_sha256="a" * 64,
+        total_rows=3,
+        created_count=1,
+        skipped_count=2,
+    )
+
+    assert isinstance(result, ImportBatchRecord)
+    sql = conn.fetchrow.call_args[0][0]
+    assert "INSERT INTO pipeline_card_import_batches" in sql
+    assert "content_sha256" in sql
+
+
+@pytest.mark.asyncio
+async def test_insert_import_rows_returns_records_and_decodes_metadata_json():
+    pool, conn = _mock_pool()
+    batch_id = uuid4()
+    card_id = uuid4()
+    conn.fetchrow.return_value = _import_row(
+        batch_id=batch_id,
+        card_id=card_id,
+        metadata='{"segmento": "SaaS"}',
+    )
+    repo = CardRepository(pool)
+
+    result = await repo.insert_import_rows(
+        [
+            {
+                "batch_id": batch_id,
+                "line_number": 2,
+                "raw_cnpj": "12345678",
+                "cnpj_basico": "12345678",
+                "display_name": "Lead",
+                "card_id": card_id,
+                "status": "created",
+                "reason": None,
+                "metadata_json": '{"segmento": "SaaS"}',
+            }
+        ]
+    )
+
+    assert len(result) == 1
+    assert isinstance(result[0], ImportRowRecord)
+    assert result[0].metadata == {"segmento": "SaaS"}
+    sql = conn.fetchrow.call_args[0][0]
+    assert "INSERT INTO pipeline_card_import_rows" in sql
+    assert "$9::jsonb" in sql
+
+
+@pytest.mark.asyncio
+async def test_list_import_batches_returns_records():
+    pool, conn = _mock_pool()
+    pipeline_id = uuid4()
+    conn.fetch.return_value = [_import_batch_row(pipeline_id=pipeline_id)]
+    repo = CardRepository(pool)
+
+    result = await repo.list_import_batches(pipeline_id)
+
+    assert len(result) == 1
+    assert isinstance(result[0], ImportBatchRecord)
+    assert "ORDER BY created_at DESC" in conn.fetch.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_list_import_rows_for_card_returns_records():
+    pool, conn = _mock_pool()
+    card_id = uuid4()
+    conn.fetch.return_value = [_import_row(card_id=card_id)]
+    repo = CardRepository(pool)
+
+    result = await repo.list_import_rows_for_card(card_id)
+
+    assert len(result) == 1
+    assert isinstance(result[0], ImportRowRecord)
+    assert "WHERE card_id = $1" in conn.fetch.call_args[0][0]

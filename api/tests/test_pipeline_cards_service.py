@@ -66,6 +66,7 @@ async def test_create_card_with_explicit_stage_inserts_and_records_history():
         stage_id=stage_id,
         cnpj_basico="12345678",
         position=5,
+        display_name=None,
         estimated_value_cents=None,
         notes="n",
     )
@@ -197,7 +198,12 @@ async def test_update_card_delegates_to_repo():
         payload=CardPatch(estimated_value_cents=100, notes="x"),
     )
 
-    repo.update.assert_awaited_once_with(card.id, estimated_value_cents=100, notes="x")
+    repo.update.assert_awaited_once_with(
+        card.id,
+        display_name=None,
+        estimated_value_cents=100,
+        notes="x",
+    )
     assert result == updated
 
 

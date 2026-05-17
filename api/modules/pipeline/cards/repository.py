@@ -1,6 +1,7 @@
 """Repository for pipeline card CRUD operations."""
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 from modules.pipeline.cards.schemas import (
@@ -8,6 +9,8 @@ from modules.pipeline.cards.schemas import (
     CardRecord,
     CardWithCompany,
     CompanySummary,
+    ImportBatchRecord,
+    ImportRowRecord,
 )
 
 
@@ -58,6 +61,19 @@ class CardRepository:
         )
         return {row["cnpj_basico"] for row in rows}
 
+    async def existing_card_ids_in_pipeline_by_cnpj(
+        self,
+        pipeline_id: UUID,
+        cnpjs: list[str],
+    ) -> dict[str, UUID]:
+        rows = await self._fetch(
+            "SELECT cnpj_basico, id FROM pipeline_cards"
+            " WHERE pipeline_id = $1 AND cnpj_basico = ANY($2::char(8)[])",
+            pipeline_id,
+            cnpjs,
+        )
+        return {row["cnpj_basico"]: row["id"] for row in rows}
+
     async def insert(
         self,
         *,
@@ -65,17 +81,20 @@ class CardRepository:
         stage_id: UUID,
         cnpj_basico: str,
         position: int,
+        display_name: str | None,
         estimated_value_cents: int | None,
         notes: str | None,
     ) -> CardRecord:
         row = await self._fetchrow(
             "INSERT INTO pipeline_cards"
-            " (pipeline_id, stage_id, cnpj_basico, position, estimated_value_cents, notes)"
-            " VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+            " (pipeline_id, stage_id, cnpj_basico, position, display_name,"
+            " estimated_value_cents, notes)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
             pipeline_id,
             stage_id,
             cnpj_basico,
             position,
+            display_name,
             estimated_value_cents,
             notes,
         )
@@ -88,12 +107,14 @@ class CardRepository:
                 for row in rows:
                     inserted = await conn.fetchrow(
                         "INSERT INTO pipeline_cards"
-                        " (pipeline_id, stage_id, cnpj_basico, position, estimated_value_cents, notes)"
-                        " VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+                        " (pipeline_id, stage_id, cnpj_basico, position, display_name,"
+                        " estimated_value_cents, notes)"
+                        " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
                         row["pipeline_id"],
                         row["stage_id"],
                         row["cnpj_basico"],
                         row["position"],
+                        row.get("display_name"),
                         row.get("estimated_value_cents"),
                         row.get("notes"),
                     )
@@ -148,16 +169,19 @@ class CardRepository:
         self,
         card_id: UUID,
         *,
+        display_name: str | None,
         estimated_value_cents: int | None,
         notes: str | None,
     ) -> CardRecord:
         row = await self._fetchrow(
             "UPDATE pipeline_cards"
-            " SET estimated_value_cents = COALESCE($2, estimated_value_cents),"
-            " notes = COALESCE($3, notes),"
+            " SET display_name = COALESCE($2, display_name),"
+            " estimated_value_cents = COALESCE($3, estimated_value_cents),"
+            " notes = COALESCE($4, notes),"
             " updated_at = now()"
             " WHERE id = $1 RETURNING *",
             card_id,
+            display_name,
             estimated_value_cents,
             notes,
         )
@@ -255,6 +279,106 @@ class CardRepository:
             to_stage_id,
             changed_by_user_id,
         )
+
+    async def delete_import_batch_for_file(
+        self,
+        *,
+        owner_user_id: UUID,
+        pipeline_id: UUID,
+        filename: str,
+        file_size_bytes: int,
+    ) -> None:
+        await self._execute(
+            "DELETE FROM pipeline_card_import_batches"
+            " WHERE owner_user_id = $1"
+            "   AND pipeline_id = $2"
+            "   AND filename = $3"
+            "   AND file_size_bytes = $4",
+            owner_user_id,
+            pipeline_id,
+            filename,
+            file_size_bytes,
+        )
+
+    async def insert_import_batch(
+        self,
+        *,
+        owner_user_id: UUID,
+        pipeline_id: UUID,
+        stage_id: UUID,
+        filename: str,
+        file_size_bytes: int,
+        content_sha256: str,
+        total_rows: int,
+        created_count: int,
+        skipped_count: int,
+    ) -> ImportBatchRecord:
+        row = await self._fetchrow(
+            "INSERT INTO pipeline_card_import_batches"
+            " (owner_user_id, pipeline_id, stage_id, filename, file_size_bytes,"
+            " content_sha256, total_rows, created_count, skipped_count)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+            " RETURNING *",
+            owner_user_id,
+            pipeline_id,
+            stage_id,
+            filename,
+            file_size_bytes,
+            content_sha256,
+            total_rows,
+            created_count,
+            skipped_count,
+        )
+        return ImportBatchRecord(**dict(row))
+
+    async def insert_import_rows(self, rows: list[dict]) -> list[ImportRowRecord]:
+        results: list[ImportRowRecord] = []
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                for row in rows:
+                    inserted = await conn.fetchrow(
+                        "INSERT INTO pipeline_card_import_rows"
+                        " (batch_id, line_number, raw_cnpj, cnpj_basico, display_name,"
+                        " card_id, status, reason, metadata)"
+                        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)"
+                        " RETURNING *",
+                        row["batch_id"],
+                        row["line_number"],
+                        row["raw_cnpj"],
+                        row.get("cnpj_basico"),
+                        row.get("display_name"),
+                        row.get("card_id"),
+                        row["status"],
+                        row.get("reason"),
+                        row.get("metadata_json", "{}"),
+                    )
+                    results.append(self._import_row_from_row(inserted))
+        return results
+
+    async def list_import_batches(self, pipeline_id: UUID) -> list[ImportBatchRecord]:
+        rows = await self._fetch(
+            "SELECT * FROM pipeline_card_import_batches"
+            " WHERE pipeline_id = $1"
+            " ORDER BY created_at DESC",
+            pipeline_id,
+        )
+        return [ImportBatchRecord(**dict(row)) for row in rows]
+
+    async def list_import_rows_for_card(self, card_id: UUID) -> list[ImportRowRecord]:
+        rows = await self._fetch(
+            "SELECT * FROM pipeline_card_import_rows"
+            " WHERE card_id = $1"
+            " ORDER BY created_at DESC, line_number",
+            card_id,
+        )
+        return [self._import_row_from_row(row) for row in rows]
+
+    def _import_row_from_row(self, row) -> ImportRowRecord:
+        row_dict = dict(row)
+        metadata = row_dict.get("metadata")
+        if isinstance(metadata, str):
+            row_dict["metadata"] = json.loads(metadata)
+        return ImportRowRecord(**row_dict)
 
     async def _fetchrow(self, query: str, *args):
         async with self._pool.acquire() as conn:
